@@ -1,10 +1,10 @@
 package io.github.eyupmiduck.ddlutils;
 
 import io.github.eyupmiduck.ddlutils.jooq.ddl_utils_lib.Routines;
+import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies the structured column helpers {@code ddl_utils_lib.drop_column} and
@@ -58,15 +58,20 @@ class DropRenameColumnTest extends SingleTableTest {
 
     /**
      * drop_columns rejects duplicate column names with an invalid-parameter
-     * error, leaving the table unchanged.
+     * error that names the duplicate, leaving the table unchanged.
      */
     @Test
     void dropColumnsRejectsDuplicateNames() {
-        assertSqlState("22023",
+        DataAccessException failure = assertThrows(DataAccessException.class,
                 () -> dropColumns(new String[]{"old_name", "old_name"},
                         DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
 
+        assertEquals("22023", failure.sqlState());
+        assertTrue(failure.getMessage().contains("old_name"),
+                () -> "the error should name the duplicate: " + failure.getMessage());
         assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "old_name"));
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "id"));
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "keep"));
     }
 
     /**
@@ -81,6 +86,7 @@ class DropRenameColumnTest extends SingleTableTest {
                 new String[]{base + "x", base + "y"}, DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
 
         assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "old_name"));
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "keep"));
     }
 
     /**
@@ -91,6 +97,10 @@ class DropRenameColumnTest extends SingleTableTest {
     void dropColumnsRejectsNullArrayAndElements() {
         assertDomainViolation(() -> dropColumns(null, DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
         assertDomainViolation(() -> dropColumns(new String[]{null}, DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
+
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "old_name"));
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "keep"));
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "id"));
     }
 
     /**
@@ -118,6 +128,21 @@ class DropRenameColumnTest extends SingleTableTest {
         assertFalse(hasColumn(PUBLIC_SCHEMA, target(), "old_name"));
         assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "new_name"));
         assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "keep"));
+    }
+
+    /**
+     * rename_column rejects an identifier over PostgreSQL's 63-byte limit
+     * before the ALTER, leaving the table unchanged.
+     */
+    @Test
+    void renameColumnRejectsOverLongName() {
+        String overLong = "c".repeat(64);
+
+        assertSqlState("22023", () -> renameColumn("old_name", overLong,
+                DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
+
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "old_name"));
+        assertFalse(hasColumn(PUBLIC_SCHEMA, target(), overLong));
     }
 
     /**

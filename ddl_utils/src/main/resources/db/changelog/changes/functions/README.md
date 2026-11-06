@@ -235,7 +235,9 @@ and `add_foreign_key` emit `NOT VALID` (metadata-only); call
 against existing rows (it scans but takes only `SHARE UPDATE EXCLUSIVE`, so it
 has no lock-aware wrapper). The two `*_using_index` helpers attach a pre-built
 unique index (`CREATE UNIQUE INDEX CONCURRENTLY`), which is metadata-only when
-the index is valid.
+the index is valid. `ddl_utils.rename_table` also moves the table's lock
+settings to the new name in one statement (`ddl_utils.move_table_lock_settings`);
+an existing row for the destination is replaced with a `NOTICE`.
 
 ## `ddl_utils_lib`
 
@@ -256,10 +258,25 @@ RETURNS void
 **Internal runner.** `SECURITY INVOKER`. Runs
 `ALTER TABLE <schema>.<table> <fragment>` with the given lock/retry settings,
 restoring the caller's `lock_timeout` on success. Rejects a blank fragment and
-one containing `;`, `$` or a comment marker (a best-effort guard; the caller
-already holds the privileges the fragment uses). This is the only routine that
-executes dynamic SQL; prefer the structured helpers, which build the fragment
-from validated identifiers/values.
+one containing `;`, `--`, `/*` or `*/` outside quoted text (a best-effort
+guard; the caller already holds the privileges the fragment uses). This is the
+only routine that executes dynamic SQL; prefer the structured helpers, which
+build the fragment from validated identifiers/values.
+
+### `ddl_utils_lib.has_unquoted_token(i_value, i_tokens, i_top_level_only)`
+
+```sql
+i_value          text
+i_tokens         ddl_utils.non_empty_non_null_text_array
+i_top_level_only ddl_utils.non_null_boolean
+RETURNS boolean
+```
+
+`IMMUTABLE`, `SECURITY INVOKER`. True when the value contains one of the tokens
+in code (outside parentheses-nested groups, strings, quoted identifiers,
+dollar-quoted literals and comments), optionally only at bracket depth 0. The
+scanner is shared by `alter_table`'s statement-separator guard and
+`has_top_level_comma`. A NULL value returns false.
 
 ### `ddl_utils_lib.has_top_level_comma(i_value)`
 
@@ -280,9 +297,10 @@ i_context ddl_utils.non_null_text
 RETURNS void
 ```
 
-`IMMUTABLE`, `SECURITY INVOKER`. Raises `22023` when the array does not start at
-subscript 1; the array domains constrain cardinality but not the lower bound.
-Used by the helpers whose loops assume a 1-based array.
+`STABLE`, `SECURITY INVOKER`. Raises `22023` when the array is NULL, empty, not
+one-dimensional, or does not start at subscript 1. Used by the helpers whose
+loops assume a 1-based array. It raises, so it is not `IMMUTABLE` (a constant
+call must not be folded at plan time for an unreachable branch).
 
 ### `ddl_utils_lib.assert_non_blank_elements(i_values, i_context, i_label)`
 
@@ -293,7 +311,7 @@ i_label   ddl_utils.non_null_text
 RETURNS void
 ```
 
-`IMMUTABLE`, `SECURITY INVOKER`. Raises `22023` when the array is not 1-based or
+`STABLE`, `SECURITY INVOKER`. Raises `22023` when the array is not 1-based or
 a non-null element is blank (whitespace-only, using the same trim set as the
 `non_null_text` domain). NULL elements are allowed and skipped (a NULL default
 means no `DEFAULT` clause). Used to validate the array arguments of
@@ -321,7 +339,8 @@ RETURNS void
 ```
 
 `IMMUTABLE`, `SECURITY INVOKER`. Raises `22023` when the value contains a
-top-level comma (one that could append another `ALTER TABLE` action). Used by
+top-level comma (one that could append another `ALTER TABLE` action). A NULL
+value means "no `DEFAULT` clause" and returns without error. Used by
 `add_check_constraint`, `add_columns` and `set_column_default`.
 
 ### `ddl_utils_lib.assert_allowed_keyword(i_value, i_allowed, i_context)`
@@ -668,6 +687,11 @@ RETURNS void
 `SECURITY INVOKER`. Attaches a pre-built unique index as the primary key. Build
 the index with `CREATE UNIQUE INDEX CONCURRENTLY` first; the attach is
 metadata-only when the index is valid and the columns are already `NOT NULL`.
+Validates that the index exists in `i_schema_name`, is a valid, non-partial,
+non-expression unique index on the table, and every key column is already
+`NOT NULL`; otherwise raises `42704`/`42809`/`55000` before the ALTER.
+`i_index_name` must be an unquoted, unqualified identifier, and both names must
+be at most 63 bytes.
 
 ###
 
@@ -683,7 +707,10 @@ RETURNS void
 ```
 
 `SECURITY INVOKER`. Attaches a pre-built unique index as a unique constraint;
-metadata-only when the index is valid.
+metadata-only when the index is valid. Validates that the index exists in
+`i_schema_name`, is a valid, non-partial, non-expression unique index on the
+table; otherwise raises `42704`/`42809` before the ALTER. `i_index_name` must be
+an unquoted, unqualified identifier, and both names must be at most 63 bytes.
 
 ### `ddl_utils_lib.rename_table(i_schema_name, i_table_name, i_new_table_name, settings...)`
 

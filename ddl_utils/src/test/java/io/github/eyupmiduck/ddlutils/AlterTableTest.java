@@ -97,6 +97,56 @@ class AlterTableTest extends SingleTableTest {
         assertSqlState("22023", () -> alterTable(
                 PUBLIC_SCHEMA, target(), "ADD COLUMN commented int -- trailing", 1000, 10, 5000));
         assertFalse(hasColumn(PUBLIC_SCHEMA, target(), "commented"));
+
+        assertSqlState("22023", () -> alterTable(
+                PUBLIC_SCHEMA, target(), "ADD COLUMN blocked int /* comment */", 1000, 10, 5000));
+        assertFalse(hasColumn(PUBLIC_SCHEMA, target(), "blocked"));
+    }
+
+    /**
+     * Rejects a dollar-quoted value that hides a statement separator from a
+     * naive scrub: the apostrophe inside {@code $q$...$q$} is data, but the
+     * semicolon after the closing tag is code and must be rejected before
+     * {@code EXECUTE} can run the stacked {@code DROP TABLE}.
+     */
+    @Test
+    void rejectsDollarQuotedStatementStacking() {
+        dsl.execute("CREATE TABLE " + PUBLIC_SCHEMA + ".alter_table_victim (id int)");
+        try {
+            assertSqlState("22023", () -> alterTable(PUBLIC_SCHEMA, target(),
+                    "ADD COLUMN note text DEFAULT $q$'$q$ ; DROP TABLE "
+                            + PUBLIC_SCHEMA + ".alter_table_victim; SELECT 'x'",
+                    1000, 10, 5000));
+
+            assertFalse(hasColumn(PUBLIC_SCHEMA, target(), "note"));
+            assertDoesNotThrow(() -> dsl.fetchOne(
+                    "SELECT 1 FROM " + PUBLIC_SCHEMA + ".alter_table_victim"));
+        } finally {
+            dsl.execute("DROP TABLE IF EXISTS " + PUBLIC_SCHEMA + ".alter_table_victim");
+        }
+    }
+
+    /**
+     * Accepts dollar-quoted values, E-strings and quoted identifiers that
+     * contain separators, comment markers or apostrophes as data.
+     */
+    @Test
+    void acceptsDollarQuotedValuesAndQuotedIdentifiers() {
+        alterTable(PUBLIC_SCHEMA, target(),
+                "ADD COLUMN payload jsonb DEFAULT $$ {\"v\": \"a;b\"} $$", 1000, 10, 5000);
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "payload"));
+
+        alterTable(PUBLIC_SCHEMA, target(),
+                "ADD COLUMN tagged text DEFAULT $tag$--not a comment; x$tag$", 1000, 10, 5000);
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "tagged"));
+
+        alterTable(PUBLIC_SCHEMA, target(),
+                "ADD COLUMN estr text DEFAULT E'it\\'s;ok'", 1000, 10, 5000);
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "estr"));
+
+        alterTable(PUBLIC_SCHEMA, target(),
+                "ADD COLUMN \"a'b\" int", 1000, 10, 5000);
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "a'b"));
     }
 
     /**
@@ -107,9 +157,14 @@ class AlterTableTest extends SingleTableTest {
      */
     @Test
     void retriesUntilTheLockIsAvailable() {
+        long started = System.nanoTime();
+
         runWhileTableLocked(target(), 1000,
                 () -> alterTable(PUBLIC_SCHEMA, target(), "ADD COLUMN retried int", 200, 200, 30000));
 
+        long elapsedMillis = (System.nanoTime() - started) / 1_000_000;
+        assertTrue(elapsedMillis >= 800,
+                () -> "the call should have retried at least once; elapsed=" + elapsedMillis + "ms");
         assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "retried"));
     }
 
@@ -136,6 +191,7 @@ class AlterTableTest extends SingleTableTest {
             tx.execute("SET LOCAL lock_timeout = '7s'");
             String before = tx.fetchOne("SELECT current_setting('lock_timeout') AS value")
                     .get("value", String.class);
+            assertNotEquals("0", before, "the test must start from a non-default lock_timeout");
 
             tx.fetch("SELECT ddl_utils_lib.alter_table(?, ?, ?, ?, ?, ?)",
                     PUBLIC_SCHEMA, target(), "ADD COLUMN tuned int", 1000, 10, 5000);
@@ -144,6 +200,20 @@ class AlterTableTest extends SingleTableTest {
                     .get("value", String.class);
             assertEquals(before, after);
         });
+
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "tuned"),
+                "the ALTER must have applied, so the restore assertion is meaningful");
+    }
+
+    /**
+     * A zero statement budget still allows the first attempt to succeed when no
+     * lock conflict occurs; the budget is checked only after a failed attempt.
+     */
+    @Test
+    void acceptsZeroStatementDurationOnFirstAttempt() {
+        alterTable(PUBLIC_SCHEMA, target(), "ADD COLUMN zero_budget int", 100, 10, 0);
+
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), "zero_budget"));
     }
 
     /**

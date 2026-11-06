@@ -1,3 +1,11 @@
+-- Caller grants for every routine and domain.
+--
+-- This file is applied by a runOnChange changeset, so it is add-only: removing
+-- a GRANT line does not revoke the privilege. Express every removal as an
+-- explicit REVOKE (as done for PUBLIC) and keep the statements idempotent.
+--
+-- Keep this file free of dollar-quoted blocks: Liquibase's default sqlFile
+-- splitter is not dollar-quote aware and would split at an inner semicolon.
 GRANT USAGE ON SCHEMA ddl_utils TO ddl_utils_caller;
 GRANT USAGE ON SCHEMA ddl_utils_lib TO ddl_utils_caller;
 GRANT SELECT ON ddl_utils.database_lock_settings TO ddl_utils_caller;
@@ -77,6 +85,16 @@ REVOKE EXECUTE ON FUNCTION ddl_utils_lib.has_top_level_comma(
     ) FROM public;
 GRANT EXECUTE ON FUNCTION ddl_utils_lib.has_top_level_comma(
     text
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.has_unquoted_token(
+    text,
+    ddl_utils.non_empty_non_null_text_array,
+    ddl_utils.non_null_boolean
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.has_unquoted_token(
+    text,
+    ddl_utils.non_empty_non_null_text_array,
+    ddl_utils.non_null_boolean
     ) TO ddl_utils_caller;
 REVOKE EXECUTE ON FUNCTION ddl_utils_lib.assert_one_based(
     anyarray,
@@ -771,6 +789,16 @@ REVOKE EXECUTE ON FUNCTION ddl_utils.add_unique_constraint_using_index(
     ) FROM public;
 GRANT EXECUTE ON FUNCTION ddl_utils.add_unique_constraint_using_index(
     ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils.move_table_lock_settings(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils.move_table_lock_settings(
     ddl_utils.non_null_text,
     ddl_utils.non_null_text,
     ddl_utils.non_null_text

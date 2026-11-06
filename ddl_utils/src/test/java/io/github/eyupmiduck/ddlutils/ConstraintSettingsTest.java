@@ -27,11 +27,32 @@ class ConstraintSettingsTest extends PostgresTestBase {
 
     @AfterEach
     void cleanUp() {
+        RuntimeException failure = null;
         try {
             clearTableLockSettings(PUBLIC_SCHEMA, TARGET);
-        } finally {
+        } catch (RuntimeException e) {
+            failure = e;
+        }
+        try {
             dropTestTable(TARGET);
+        } catch (RuntimeException e) {
+            if (failure != null) {
+                failure.addSuppressed(e);
+            } else {
+                failure = e;
+            }
+        }
+        try {
             dropTestTable(REFERENCED);
+        } catch (RuntimeException e) {
+            if (failure != null) {
+                failure.addSuppressed(e);
+            } else {
+                failure = e;
+            }
+        }
+        if (failure != null) {
+            throw failure;
         }
     }
 
@@ -70,6 +91,7 @@ class ConstraintSettingsTest extends PostgresTestBase {
     void dropAndRenameUseDatabaseDefaults() {
         Routines.addCheckConstraint(dsl.configuration(), PUBLIC_SCHEMA, TARGET, "old_name", "value > 0");
         Routines.renameConstraint(dsl.configuration(), PUBLIC_SCHEMA, TARGET, "old_name", "new_name");
+        assertFalse(constraintExists(PUBLIC_SCHEMA, TARGET, "old_name"));
         assertTrue(constraintExists(PUBLIC_SCHEMA, TARGET, "new_name"));
 
         Routines.dropConstraint(dsl.configuration(), PUBLIC_SCHEMA, TARGET, "new_name");

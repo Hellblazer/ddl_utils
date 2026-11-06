@@ -1,6 +1,8 @@
 package io.github.eyupmiduck.ddlutils;
 
 import io.github.eyupmiduck.ddlutils.jooq.ddl_utils_lib.Routines;
+import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -74,18 +76,52 @@ class SetColumnAttributeTest extends SingleTableTest {
     }
 
     /**
+     * The compression fragment uses pg_catalog.lower, not a search_path-
+     * shadowing lower(), so a caller cannot change the emitted keyword.
+     */
+    @Test
+    void usesTheBuiltInLowerWhenSearchPathShadowsIt() {
+        dsl.execute("CREATE OR REPLACE FUNCTION public.lower(text) RETURNS text "
+                + "LANGUAGE sql IMMUTABLE AS $$ SELECT 'pglz'::text $$");
+        try {
+            dsl.transaction(configuration -> {
+                DSLContext tx = DSL.using(configuration);
+                tx.execute("SET LOCAL search_path = public, pg_catalog");
+                Routines.setColumnCompression(tx.configuration(), PUBLIC_SCHEMA, target(), "note", "lz4",
+                        DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION);
+            });
+
+            assertEquals("lz4", columnCompression(PUBLIC_SCHEMA, target(), "note"),
+                    "the built-in lower must be used, not public.lower");
+        } finally {
+            dsl.execute("DROP FUNCTION IF EXISTS public.lower(text)");
+        }
+    }
+
+    /**
      * Rejects null arguments through their domains before the body runs.
      */
     @Test
     void rejectsNullArguments() {
+        assertDomainViolation(() -> setStorage(null, "EXTERNAL"));
+        assertDomainViolation(() -> setStorage("   ", "EXTERNAL"));
         assertDomainViolation(() -> setStorage("note", null));
         assertDomainViolation(() -> setStorage("note", "EXTERNAL", null, SLEEP_TIME, STATEMENT_DURATION));
         assertDomainViolation(() -> setStorage("note", "EXTERNAL", DDL_LOCK_TIMEOUT, null, STATEMENT_DURATION));
         assertDomainViolation(() -> setStorage("note", "EXTERNAL", DDL_LOCK_TIMEOUT, SLEEP_TIME, null));
+        assertDomainViolation(() -> setStorage("note", "EXTERNAL", -1, SLEEP_TIME, STATEMENT_DURATION));
+        assertDomainViolation(() -> setStorage("note", "EXTERNAL", DDL_LOCK_TIMEOUT, -1, STATEMENT_DURATION));
+        assertDomainViolation(() -> setStorage("note", "EXTERNAL", DDL_LOCK_TIMEOUT, SLEEP_TIME, -1));
+
+        assertDomainViolation(() -> setCompression(null, "pglz"));
+        assertDomainViolation(() -> setCompression("   ", "pglz"));
         assertDomainViolation(() -> setCompression("note", null));
         assertDomainViolation(() -> setCompression("note", "pglz", null, SLEEP_TIME, STATEMENT_DURATION));
         assertDomainViolation(() -> setCompression("note", "pglz", DDL_LOCK_TIMEOUT, null, STATEMENT_DURATION));
         assertDomainViolation(() -> setCompression("note", "pglz", DDL_LOCK_TIMEOUT, SLEEP_TIME, null));
+        assertDomainViolation(() -> setCompression("note", "pglz", -1, SLEEP_TIME, STATEMENT_DURATION));
+        assertDomainViolation(() -> setCompression("note", "pglz", DDL_LOCK_TIMEOUT, -1, STATEMENT_DURATION));
+        assertDomainViolation(() -> setCompression("note", "pglz", DDL_LOCK_TIMEOUT, SLEEP_TIME, -1));
     }
 
     private void setStorage(String column, String storage) {

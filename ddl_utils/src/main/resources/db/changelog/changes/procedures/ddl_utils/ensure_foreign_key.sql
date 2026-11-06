@@ -16,16 +16,41 @@ DECLARE
     l_relation            regclass;
     l_referenced_relation regclass;
     l_lock_key            bigint;
+    l_existing_definition text;
 BEGIN
+    -- PostgreSQL truncates an identifier to NAMEDATALEN - 1 bytes with only a
+    -- NOTICE. The catalog guards below compare conname with the untruncated
+    -- argument, so an over-long name would be added under a truncated name,
+    -- committed, and then fail to match on the validation/recovery path.
+    IF pg_catalog.octet_length(i_constraint_name) > 63 THEN
+        RAISE EXCEPTION
+            'ddl_utils.ensure_foreign_key: the constraint name must be at most 63 bytes'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- Read the lock settings once; they are reused across both steps.
-    SELECT *
-    INTO l_settings
+    SELECT ls.ddl_lock_timeout,
+           ls.sleep_time,
+           ls.statement_duration
+    INTO STRICT l_settings.ddl_lock_timeout,
+        l_settings.sleep_time,
+        l_settings.statement_duration
     FROM ddl_utils.get_lock_settings(
                  i_schema_name => i_schema_name,
                  i_table_name => i_table_name
          ) AS ls;
 
     l_relation := pg_catalog.format('%I.%I', i_schema_name, i_table_name)::regclass;
+
+    -- regclass only proves the relation exists; a view, sequence or index would
+    -- pass the catalog checks below and fail later inside ALTER TABLE.
+    IF (SELECT c.relkind
+        FROM pg_catalog.pg_class AS c
+        WHERE c.oid = l_relation) NOT IN ('r', 'p') THEN
+        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: %.% is not a table',
+            i_schema_name, i_table_name
+            USING ERRCODE = '42809';
+    END IF;
 
     -- The definitions are compared as a column mapping, which only makes sense
     -- for equal-length lists; reject mismatched lengths up front instead of
@@ -47,13 +72,23 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
-    -- A transaction-scoped advisory lock on this table serializes concurrent
-    -- runs. It is taken before the read-then-act guards so two callers cannot
-    -- both observe "no constraint" and then add different definitions; the
-    -- lock is released by each step's COMMIT and on error, so a failed run
-    -- cannot leak it, and step 2 re-takes it after step 1's COMMIT.
+    -- A transaction-scoped advisory lock on the pair of relations serializes
+    -- concurrent runs, including reciprocal ensure_foreign_key(A -> B) and
+    -- (B -> A): ADD FOREIGN KEY takes SHARE ROW EXCLUSIVE on both relations, so
+    -- a source-only key lets reciprocal calls acquire the table locks in
+    -- opposite order and deadlock. Sort the two qualified names so both
+    -- directions use the same slot. The lock is released by each step's COMMIT
+    -- and on error, and step 2 re-takes it after step 1's COMMIT.
     l_lock_key := pg_catalog.hashtextextended(
-            pg_catalog.format('ddl_utils.ensure_foreign_key|%I.%I', i_schema_name, i_table_name),
+            pg_catalog.format('ddl_utils.ensure_foreign_key|%s|%s',
+                              least(
+                                      pg_catalog.format('%I.%I', i_schema_name, i_table_name),
+                                      pg_catalog.format('%I.%I', i_referenced_schema_name,
+                                                        i_referenced_table_name)),
+                              greatest(
+                                      pg_catalog.format('%I.%I', i_schema_name, i_table_name),
+                                      pg_catalog.format('%I.%I', i_referenced_schema_name,
+                                                        i_referenced_table_name))),
             0);
     PERFORM pg_catalog.pg_advisory_xact_lock(l_lock_key);
 
@@ -63,6 +98,14 @@ BEGIN
         RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: referenced table %.% does not exist',
             i_referenced_schema_name, i_referenced_table_name
             USING ERRCODE = '42P01';
+    END IF;
+
+    IF (SELECT c.relkind
+        FROM pg_catalog.pg_class AS c
+        WHERE c.oid = l_referenced_relation) NOT IN ('r', 'p') THEN
+        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: referenced relation %.% is not a table',
+            i_referenced_schema_name, i_referenced_table_name
+            USING ERRCODE = '42809';
     END IF;
 
     -- A named column that does not resolve must fail loudly. Otherwise the
@@ -151,9 +194,16 @@ BEGIN
                                                         EXCEPT ALL
                                                         SELECT source_name, referenced_name
                                                         FROM requested))) THEN
+        SELECT pg_catalog.pg_get_constraintdef(c.oid)
+        INTO l_existing_definition
+        FROM pg_catalog.pg_constraint AS c
+        WHERE c.conname = i_constraint_name
+          AND c.conrelid = l_relation
+          AND c.contype = 'f';
+
         RAISE EXCEPTION
-            'ddl_utils.ensure_foreign_key: constraint % already exists on %.% with a different definition',
-            i_constraint_name, i_schema_name, i_table_name
+            'ddl_utils.ensure_foreign_key: constraint % already exists on %.% with a different definition (existing: %)',
+            i_constraint_name, i_schema_name, i_table_name, l_existing_definition
             USING ERRCODE = '42710';
     END IF;
 

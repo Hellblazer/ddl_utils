@@ -1,11 +1,16 @@
 package io.github.eyupmiduck.ddlutils;
 
 import org.jooq.Record;
+import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
+import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -105,6 +110,55 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
     }
 
     /**
+     * Reciprocal foreign keys on two tables serialize on the same advisory-lock
+     * slot, so concurrent calls do not deadlock in opposite table-lock order.
+     */
+    @Test
+    void reciprocalCallsDoNotDeadlock() throws Exception {
+        dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + REFERENCED + " ADD COLUMN target_id int");
+        dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + TARGET + " ADD CONSTRAINT target_id_key UNIQUE (id)");
+
+        try {
+            int callers = 2;
+            CyclicBarrier barrier = new CyclicBarrier(callers);
+            try (ExecutorService pool = Executors.newFixedThreadPool(callers)) {
+                List<Future<Void>> futures = new ArrayList<>();
+                futures.add(pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    try (Connection connection = openTestConnection();
+                         Statement statement = connection.createStatement()) {
+                        statement.execute("CALL ddl_utils.ensure_foreign_key('" + PUBLIC_SCHEMA + "', '"
+                                + TARGET + "', 'fk_forward', ARRAY['parent_id'], '"
+                                + PUBLIC_SCHEMA + "', '" + REFERENCED + "', ARRAY['id'])");
+                    }
+                    return null;
+                }));
+                futures.add(pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    try (Connection connection = openTestConnection();
+                         Statement statement = connection.createStatement()) {
+                        statement.execute("CALL ddl_utils.ensure_foreign_key('" + PUBLIC_SCHEMA + "', '"
+                                + REFERENCED + "', 'fk_reverse', ARRAY['target_id'], '"
+                                + PUBLIC_SCHEMA + "', '" + TARGET + "', ARRAY['id'])");
+                    }
+                    return null;
+                }));
+                for (Future<Void> future : futures) {
+                    future.get(30, TimeUnit.SECONDS);
+                }
+            }
+
+            assertValidated(PUBLIC_SCHEMA, TARGET, "fk_forward");
+            assertValidated(PUBLIC_SCHEMA, REFERENCED, "fk_reverse");
+        } finally {
+            // TARGET is dropped before REFERENCED by the class teardown, so the
+            // reverse key must not be left depending on TARGET.
+            dsl.execute("ALTER TABLE IF EXISTS " + PUBLIC_SCHEMA + "." + REFERENCED
+                    + " DROP CONSTRAINT IF EXISTS fk_reverse");
+        }
+    }
+
+    /**
      * A same-named foreign key with a different definition (here, a different
      * referencing column) is not mistaken for the requested one: the procedure
      * fails loudly instead of silently accepting the wrong constraint.
@@ -115,7 +169,12 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
                 + " ADD CONSTRAINT fk_parent FOREIGN KEY (id) REFERENCES "
                 + PUBLIC_SCHEMA + "." + REFERENCED + " (id)");
 
-        assertSqlState("42710", () -> callEnsureForeignKey("fk_parent"));
+        DataAccessException failure = assertThrows(DataAccessException.class,
+                () -> callEnsureForeignKey("fk_parent"));
+
+        assertEquals("42710", failure.sqlState());
+        assertTrue(failure.getMessage().contains("FOREIGN KEY"),
+                () -> "the mismatch message should show the existing definition: " + failure.getMessage());
     }
 
     /**
@@ -237,6 +296,43 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
         callEnsureForeignKey("fk_parent");
 
         assertValidated(PUBLIC_SCHEMA, TARGET, "fk_parent");
+    }
+
+    /**
+     * A constraint name over PostgreSQL's 63-byte identifier limit is rejected
+     * before any DDL, instead of being added under a truncated name that the
+     * validation and recovery guards can never find.
+     */
+    @Test
+    void rejectsOverLongConstraintName() {
+        String overLong = "c".repeat(64);
+        assertSqlState("22023", () -> callEnsureForeignKey(overLong));
+        assertFalse(constraintExists(PUBLIC_SCHEMA, TARGET, overLong.substring(0, 63)),
+                "no truncated constraint may be created");
+
+        assertSqlState("22023", () -> callEnsureForeignKey("\u00e9".repeat(32)));
+    }
+
+    /**
+     * The source and referenced relations must be tables; a view is rejected
+     * with 42809 before any DDL.
+     */
+    @Test
+    void rejectsNonTableSourceAndReferencedRelations() {
+        dsl.execute("CREATE VIEW " + PUBLIC_SCHEMA + ".ensure_foreign_key_view AS SELECT 1 AS id");
+        try {
+            assertSqlState("42809", () -> dsl.execute(
+                    "CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+                    PUBLIC_SCHEMA, "ensure_foreign_key_view", "fk_view", new String[]{"id"},
+                    PUBLIC_SCHEMA, REFERENCED, new String[]{"id"}));
+
+            assertSqlState("42809", () -> dsl.execute(
+                    "CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+                    PUBLIC_SCHEMA, TARGET, "fk_view", new String[]{"parent_id"},
+                    PUBLIC_SCHEMA, "ensure_foreign_key_view", new String[]{"id"}));
+        } finally {
+            dsl.execute("DROP VIEW IF EXISTS " + PUBLIC_SCHEMA + ".ensure_foreign_key_view");
+        }
     }
 
     /**

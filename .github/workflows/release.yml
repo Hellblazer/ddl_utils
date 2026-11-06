@@ -8,12 +8,14 @@ name: Release
 on:
   push:
     tags:
-      # A digit must follow the "v", so a bare "v" or a typo like "vfoo"
-      # cannot trigger a release.
-      - "v[0-9]*"
+      # Only a <major>.<minor>.<patch> tag releases; v1foo, v1beta, v1-test or
+      # a bare v1 would otherwise derive an invalid -Drevision from the tag.
+      - "v[0-9]*.[0-9]*.[0-9]*"
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Serialize all releases, not just runs of the same tag: two tags pushed close
+  # together must not race the publish and bump-snapshot flow.
+  group: release
   cancel-in-progress: false
 
 permissions:
@@ -29,7 +31,7 @@ jobs:
       contents: write
       packages: write
       pull-requests: write
-    uses: eyupmiduck/workflow_library/.github/workflows/maven-release.yml@16adb4400f7e82020f791cc367775819220ebb60
+    uses: eyupmiduck/workflow_library/.github/workflows/maven-release.yml@16adb4400f7e82020f791cc367775819220ebb60 # main, verified 2026-11-06
     with:
       java-version: "25"
       postgres-version: postgres:17-alpine
@@ -38,5 +40,8 @@ jobs:
       # patch snapshot. The PR is opened with RELEASE_TOKEN (a PAT/App token),
       # because GITHUB_TOKEN-opened PRs do not trigger the required checks.
       bump-snapshot: true
+    # RELEASE_TOKEN must be a repo-scoped fine-grained PAT/GitHub App token with
+    # contents: write and pull-requests: write. Protect this job with a
+    # required-review environment in repository settings.
     secrets:
       release-token: ${{ secrets.RELEASE_TOKEN }}

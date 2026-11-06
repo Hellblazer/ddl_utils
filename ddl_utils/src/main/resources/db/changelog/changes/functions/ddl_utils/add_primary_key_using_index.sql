@@ -14,8 +14,12 @@ DECLARE
 BEGIN
     -- Lock-aware wrapper: resolves the settings for the table and delegates to
     -- the generic helper.
-    SELECT *
-    INTO l_settings
+    SELECT ls.ddl_lock_timeout,
+           ls.sleep_time,
+           ls.statement_duration
+    INTO STRICT l_settings.ddl_lock_timeout,
+        l_settings.sleep_time,
+        l_settings.statement_duration
     FROM ddl_utils.get_lock_settings(
                  i_schema_name => i_schema_name,
                  i_table_name => i_table_name
@@ -34,4 +38,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION ddl_utils.add_primary_key_using_index IS
-    'Lock-aware wrapper: attaches a pre-built unique index as the primary key.';
+    'Lock-aware wrapper: attaches a pre-built unique index as the primary key. '
+        'The index must be a valid, non-partial, non-expression unique index on '
+        'the same table over NOT NULL columns; PostgreSQL renames it to '
+        'i_constraint_name.';

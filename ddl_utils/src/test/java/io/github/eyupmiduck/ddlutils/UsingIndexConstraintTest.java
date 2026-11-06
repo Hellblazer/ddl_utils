@@ -6,8 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code ddl_utils_lib.add_primary_key_using_index} and
@@ -43,21 +42,41 @@ class UsingIndexConstraintTest extends SingleTableTest {
     }
 
     /**
-     * A non-unique index, a partial index and an expression index are all
-     * rejected with the same invalid-object-state error, so an incompatible
-     * index is never attached.
+     * A non-unique index is rejected by both wrappers with the same
+     * invalid-object-state error, so an incompatible index is never attached.
      */
     @Test
-    void rejectsIncompatibleIndexes() {
+    void rejectsNonUniqueIndex() {
         dsl.execute("CREATE INDEX target_non_unique_idx ON " + PUBLIC_SCHEMA + "." + target() + " (id)");
-        assertSqlState("42809", () -> addPrimaryKeyUsingIndex("target_pk", "target_non_unique_idx"));
 
+        assertSqlState("42809", () -> addPrimaryKeyUsingIndex("target_pk", "target_non_unique_idx"));
+        assertSqlState("42809", () -> addUniqueConstraintUsingIndex(
+                "target_non_unique", "target_non_unique_idx"));
+        assertFalse(constraintExists(PUBLIC_SCHEMA, target(), "target_pk"));
+        assertFalse(constraintExists(PUBLIC_SCHEMA, target(), "target_non_unique"));
+    }
+
+    /**
+     * A partial unique index is rejected.
+     */
+    @Test
+    void rejectsPartialIndex() {
         dsl.execute("CREATE UNIQUE INDEX target_partial_idx ON " + PUBLIC_SCHEMA + "." + target()
                 + " (id) WHERE code IS NOT NULL");
-        assertSqlState("42809", () -> addUniqueConstraintUsingIndex("target_partial", "target_partial_idx"));
 
+        assertSqlState("42809", () -> addUniqueConstraintUsingIndex("target_partial", "target_partial_idx"));
+        assertFalse(constraintExists(PUBLIC_SCHEMA, target(), "target_partial"));
+    }
+
+    /**
+     * A unique expression index is rejected.
+     */
+    @Test
+    void rejectsExpressionIndex() {
         dsl.execute("CREATE UNIQUE INDEX target_expr_idx ON " + PUBLIC_SCHEMA + "." + target() + " ((id + 1))");
+
         assertSqlState("42809", () -> addUniqueConstraintUsingIndex("target_expr", "target_expr_idx"));
+        assertFalse(constraintExists(PUBLIC_SCHEMA, target(), "target_expr"));
     }
 
     /**
@@ -71,8 +90,13 @@ class UsingIndexConstraintTest extends SingleTableTest {
 
         assertEquals("u", constraintType(PUBLIC_SCHEMA, "target_code"));
         assertConstraintUsesIndex("target_code", "code");
-        assertSqlState("23505",
-                () -> dsl.execute("INSERT INTO " + PUBLIC_SCHEMA + "." + target() + " (id, code) VALUES (1, 'a'), (2, 'a')"));
+
+        // ON CONFLICT ON CONSTRAINT requires the named constraint itself; a
+        // mere unique index would not satisfy it.
+        dsl.execute("INSERT INTO " + PUBLIC_SCHEMA + "." + target()
+                + " (id, code) VALUES (1, 'a'), (2, 'a') ON CONFLICT ON CONSTRAINT target_code DO NOTHING");
+        assertEquals(1, dsl.fetchOne("SELECT count(*)::int FROM " + PUBLIC_SCHEMA + "." + target())
+                .get(0, Integer.class));
     }
 
     /**
@@ -108,9 +132,59 @@ class UsingIndexConstraintTest extends SingleTableTest {
                 JOIN pg_index i ON i.indexrelid = con.conindid
                 JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY (i.indkey)
                 WHERE con.conname = ?
-                    AND con.connamespace = (SELECT oid FROM pg_namespace WHERE nspname = ?)
-                """, constraint, PUBLIC_SCHEMA).getValues(0, String.class);
+                    AND con.conrelid = pg_catalog.format('%I.%I', ?, ?)::regclass
+                """, constraint, PUBLIC_SCHEMA, target()).getValues(0, String.class);
         assertEquals(List.of(column), columns);
+    }
+
+    /**
+     * A primary-key attach requires every indexed column to be NOT NULL; a
+     * valid unique index on a nullable column is rejected before the scan.
+     */
+    @Test
+    void rejectsPrimaryKeyOnNullableColumn() {
+        dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + target() + " ADD COLUMN note text");
+        dsl.execute("CREATE UNIQUE INDEX target_note_idx ON " + PUBLIC_SCHEMA + "." + target() + " (note)");
+
+        assertSqlState("55000", () -> addPrimaryKeyUsingIndex("target_note_pk", "target_note_idx"));
+        assertFalse(constraintExists(PUBLIC_SCHEMA, target(), "target_note_pk"));
+    }
+
+    /**
+     * A unique constraint may be attached to a nullable column; only the
+     * primary-key path requires NOT NULL.
+     */
+    @Test
+    void acceptsUniqueConstraintOnNullableColumn() {
+        dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + target() + " ADD COLUMN note text");
+        dsl.execute("CREATE UNIQUE INDEX target_note_idx ON " + PUBLIC_SCHEMA + "." + target() + " (note)");
+
+        addUniqueConstraintUsingIndex("target_note", "target_note_idx");
+
+        assertEquals("u", constraintType(PUBLIC_SCHEMA, "target_note"));
+    }
+
+    /**
+     * A qualified or pre-quoted index name is rejected: USING INDEX resolves an
+     * unqualified name in the table's schema.
+     */
+    @Test
+    void rejectsQualifiedIndexName() {
+        dsl.execute("CREATE UNIQUE INDEX target_pk_idx ON " + PUBLIC_SCHEMA + "." + target() + " (id)");
+
+        assertSqlState("22023", () -> addPrimaryKeyUsingIndex("target_pk", PUBLIC_SCHEMA + ".target_pk_idx"));
+    }
+
+    /**
+     * Over-long constraint and index names are rejected before PostgreSQL
+     * truncates them.
+     */
+    @Test
+    void rejectsOverLongNames() {
+        dsl.execute("CREATE UNIQUE INDEX target_pk_idx ON " + PUBLIC_SCHEMA + "." + target() + " (id)");
+
+        assertSqlState("22023", () -> addPrimaryKeyUsingIndex("c".repeat(64), "target_pk_idx"));
+        assertSqlState("22023", () -> addPrimaryKeyUsingIndex("target_pk", "i".repeat(64)));
     }
 
     /**

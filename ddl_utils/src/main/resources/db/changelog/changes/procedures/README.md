@@ -35,12 +35,17 @@ The template every procedure follows:
 DECLARE
     l_settings ddl_utils.lock_settings;
 BEGIN
-    -- Read the settings once for the whole call.
-    SELECT *
-    INTO l_settings
+    -- Read the settings once for the whole call, projecting the columns so a
+    -- reorder cannot silently swap them.
+    SELECT ls.ddl_lock_timeout,
+           ls.sleep_time,
+           ls.statement_duration
+    INTO STRICT l_settings.ddl_lock_timeout,
+                l_settings.sleep_time,
+                l_settings.statement_duration
     FROM ddl_utils.get_lock_settings(
             i_schema_name => i_schema_name,
-            i_table_name => i_table_name);
+            i_table_name => i_table_name) AS ls;
 
     -- Step: skip when the catalog shows the work is already done.
     IF <step not yet done> THEN
@@ -102,7 +107,13 @@ i_column_name ddl_utils.non_null_text
 ```
 
 Make a column `NOT NULL` without holding `ACCESS EXCLUSIVE` across the
-verification scan. Steps, each committed before the next:
+verification scan. `CALL` it outside an explicit transaction block (autocommit): the `COMMIT`s below fail with `2D000`
+otherwise. Steps, each
+committed before the next:
+
+Each step re-acquires the transaction-scoped advisory lock and re-reads the
+column/constraint state, because a `COMMIT` releases the lock and a concurrent
+call may have completed one or more steps in between.
 
 1. `ddl_utils_lib.add_check_constraint(<tmp>, '<col> IS NOT NULL')` — instant,
    `NOT VALID`, brief `ACCESS EXCLUSIVE`. Skipped when the column is already
@@ -113,14 +124,22 @@ verification scan. Steps, each committed before the next:
 3. `ddl_utils_lib.set_not_null(<col>)` — skips its scan because the valid
    `CHECK` proves the column non-null. Skipped when the column is already
    `NOT NULL`.
-4. `ddl_utils_lib.drop_constraint(<tmp>)` — cleanup; always runs, so a leftover
-   temporary constraint is removed.
+4. `ddl_utils_lib.drop_constraint(<tmp>)` — cleanup; runs when the temporary
+   proof still exists, so a leftover constraint is removed and a concurrent
+   call's cleanup is not repeated.
 
 `<tmp>` is deterministic from the table and column, so a re-run finds the same
 constraint. A call interrupted after any step is completed by re-running it. A
 call on an already-`NOT NULL` column performs no `ALTER TABLE` at all, so a
 re-applied migration does not re-take an `ACCESS EXCLUSIVE` lock or re-scan the
 table.
+
+A partitioned parent (`relkind` `p`) is accepted, but `ADD CONSTRAINT`,
+`VALIDATE CONSTRAINT`, `SET NOT NULL` and `DROP CONSTRAINT` recurse to every
+partition and each partition is locked `ACCESS EXCLUSIVE` for its statement.
+The lock/retry settings bound only the parent statement, so the
+no-long-`ACCESS EXCLUSIVE` guarantee does not cover the partitions; account for
+them in the maintenance window.
 
 ### `ddl_utils.ensure_check_constraint(i_schema_name, i_table_name, i_constraint_name, i_check_expression)`
 
@@ -132,7 +151,11 @@ i_check_expression ddl_utils.non_null_text
 ```
 
 Add a `CHECK` constraint and validate it in two committed steps, so the `ACCESS
-EXCLUSIVE` lock of `ADD CONSTRAINT` is released before the scan:
+EXCLUSIVE` lock of `ADD CONSTRAINT` is released before the scan. The constraint
+name must be at most 63 bytes (`22023`); PostgreSQL would otherwise truncate it
+and the validation/recovery guard would not find it. The source relation must be
+an ordinary or partitioned table (`relkind` `r`/`p`), otherwise the procedure
+raises `42809` before any DDL.
 
 1. `ddl_utils_lib.add_check_constraint(<name>, <expr>)` — `NOT VALID`, instant.
 2. `ddl_utils_lib.validate_constraint(<name>)` — scans under `SHARE UPDATE
@@ -164,9 +187,15 @@ i_referenced_column_names ddl_utils.non_empty_non_null_text_array
 Same two committed steps as `ensure_check_constraint`, for a foreign key:
 `ddl_utils_lib.add_foreign_key` (NOT VALID, `SHARE ROW EXCLUSIVE` on both
 tables) then `ddl_utils_lib.validate_constraint`. Idempotent and recoverable the
-same way.
+same way. The constraint name must be at most 63 bytes (`22023`), as for
+`ensure_check_constraint`; the source and referenced relations must be ordinary
+or partitioned tables (`relkind` `r`/`p`), otherwise the procedure raises
+`42809`.
 
 Unlike a `CHECK`, a foreign key can be compared exactly, so a same-named key
 that references different columns or a different table is not silently accepted:
 the procedure compares `confrelid` and the ordered `conkey`/`confkey` and raises
-`42710` when the definition differs.
+`42710` when the definition differs. The mismatch message includes the stored
+definition. A transaction-scoped advisory lock is keyed on the sorted pair of
+relations, so reciprocal `ensure_foreign_key(A -> B)` and `(B -> A)` calls
+serialize instead of acquiring the two table locks in opposite order.

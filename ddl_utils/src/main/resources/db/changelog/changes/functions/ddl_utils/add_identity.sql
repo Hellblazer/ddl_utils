@@ -14,8 +14,12 @@ DECLARE
 BEGIN
     -- Lock-aware wrapper: resolves the settings for the table and delegates to
     -- the generic helper.
-    SELECT *
-    INTO l_settings
+    SELECT ls.ddl_lock_timeout,
+           ls.sleep_time,
+           ls.statement_duration
+    INTO STRICT l_settings.ddl_lock_timeout,
+        l_settings.sleep_time,
+        l_settings.statement_duration
     FROM ddl_utils.get_lock_settings(
                  i_schema_name => i_schema_name,
                  i_table_name => i_table_name
@@ -34,4 +38,5 @@ END;
 $$;
 
 COMMENT ON FUNCTION ddl_utils.add_identity IS
-    'Lock-aware wrapper: adds an identity to a column.';
+    'Lock-aware wrapper: adds an identity to a column. i_generated must be '
+        'always or by default, and the column must already be NOT NULL.';

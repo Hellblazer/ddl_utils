@@ -1,11 +1,14 @@
 package io.github.eyupmiduck.ddlutils;
 
+import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies the {@code ddl_utils.ensure_check_constraint} procedure: it adds a
@@ -41,7 +44,63 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
         dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + target()
                 + " ADD CONSTRAINT positive UNIQUE (value)");
 
-        assertSqlState("42710", () -> callEnsureCheckConstraint("positive", "value > 0"));
+        DataAccessException failure = assertThrows(DataAccessException.class,
+                () -> callEnsureCheckConstraint("positive", "value > 0"));
+
+        assertEquals("42710", failure.sqlState());
+        assertTrue(failure.getMessage().contains("different kind"),
+                () -> "the error should name the constraint-kind conflict: " + failure.getMessage());
+        assertEquals("u", constraintType(PUBLIC_SCHEMA, "positive"),
+                "the pre-existing UNIQUE constraint must not be replaced");
+    }
+
+    /**
+     * The constraint name is the identity: a same-named CHECK with a different
+     * expression is left untouched and the original expression stays enforced.
+     */
+    @Test
+    void keepsOriginalExpressionForSameName() {
+        dsl.execute("INSERT INTO " + PUBLIC_SCHEMA + "." + target() + " (value) VALUES (1)");
+        dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + target()
+                + " ADD CONSTRAINT positive CHECK (value > 0)");
+        assertValidated(PUBLIC_SCHEMA, target(), "positive");
+
+        callEnsureCheckConstraint("positive", "value >= 100");
+
+        assertValidated(PUBLIC_SCHEMA, target(), "positive");
+        assertDoesNotThrow(() -> dsl.execute(
+                        "INSERT INTO " + PUBLIC_SCHEMA + "." + target() + " (value) VALUES (5)"),
+                "the original value > 0 constraint must still accept 5");
+    }
+
+    /**
+     * A constraint name over PostgreSQL's 63-byte identifier limit is rejected
+     * before any DDL, instead of being added under a truncated name that the
+     * validation and recovery guards can never find.
+     */
+    @Test
+    void rejectsOverLongConstraintName() {
+        String overLong = "c".repeat(64);
+        assertSqlState("22023", () -> callEnsureCheckConstraint(overLong, "value > 0"));
+        assertFalse(constraintExists(PUBLIC_SCHEMA, target(), overLong.substring(0, 63)),
+                "no truncated constraint may be created");
+
+        assertSqlState("22023", () -> callEnsureCheckConstraint("\u00e9".repeat(32), "value > 0"));
+    }
+
+    /**
+     * A view is not a table; the relation-kind guard rejects it before any DDL.
+     */
+    @Test
+    void rejectsNonTableRelation() {
+        dsl.execute("CREATE VIEW " + PUBLIC_SCHEMA + ".ensure_check_constraint_view AS SELECT 1 AS value");
+        try {
+            assertSqlState("42809", () -> dsl.execute(
+                    "CALL ddl_utils.ensure_check_constraint(?, ?, ?, ?)",
+                    PUBLIC_SCHEMA, "ensure_check_constraint_view", "positive", "value > 0"));
+        } finally {
+            dsl.execute("DROP VIEW IF EXISTS " + PUBLIC_SCHEMA + ".ensure_check_constraint_view");
+        }
     }
 
     /**

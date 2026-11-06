@@ -43,10 +43,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     protected static final int STATEMENT_DURATION = 5000;
 
     /**
-     * The schema Liquibase keeps its tracking tables in, so they stay out of the
-     * application schemas.
+     * The application schemas managed by this changelog, shared by the tests that
+     * enumerate them.
      */
-    static final String LIQUIBASE_SCHEMA = "liquibase";
+    static final String DDL_UTILS_SCHEMA = "ddl_utils";
+    static final String DDL_UTILS_LIB_SCHEMA = "ddl_utils_lib";
+
     static final String DATABASE_CHANGELOG_TABLE = "ddl_utils_databasechangelog";
     static final String DATABASE_CHANGELOG_LOCK_TABLE = "ddl_utils_databasechangeloglock";
 
@@ -102,6 +104,17 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
         }
     }
 
+    /**
+     * Quotes an identifier for the test DDL helpers, so a mixed-case,
+     * reserved-word or multibyte name reproduces the procedure's catalog state.
+     *
+     * @param value the identifier
+     * @return the double-quoted identifier
+     */
+    private static String quoteIdentifier(String value) {
+        return "\"" + value.replace("\"", "\"\"") + "\"";
+    }
+
     @Override
     protected Configuration configuration() {
         return CONFIGURATION;
@@ -139,9 +152,9 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @param column the column name
      */
     protected void simulateNotNullCheckAdded(String schema, String table, String column) {
-        dsl.execute("ALTER TABLE " + schema + "." + table
-                + " ADD CONSTRAINT " + notNullCheckConstraintName(schema, table, column)
-                + " CHECK (" + column + " IS NOT NULL) NOT VALID");
+        dsl.execute("ALTER TABLE " + quoteIdentifier(schema) + "." + quoteIdentifier(table)
+                + " ADD CONSTRAINT " + quoteIdentifier(notNullCheckConstraintName(schema, table, column))
+                + " CHECK (" + quoteIdentifier(column) + " IS NOT NULL) NOT VALID");
     }
 
     /**
@@ -155,8 +168,8 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected void simulateNotNullCheckValidated(String schema, String table, String column) {
         simulateNotNullCheckAdded(schema, table, column);
-        dsl.execute("ALTER TABLE " + schema + "." + table
-                + " VALIDATE CONSTRAINT " + notNullCheckConstraintName(schema, table, column));
+        dsl.execute("ALTER TABLE " + quoteIdentifier(schema) + "." + quoteIdentifier(table)
+                + " VALIDATE CONSTRAINT " + quoteIdentifier(notNullCheckConstraintName(schema, table, column)));
     }
 
     /**

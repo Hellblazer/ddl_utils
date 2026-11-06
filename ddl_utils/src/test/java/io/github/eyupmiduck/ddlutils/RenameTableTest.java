@@ -42,9 +42,9 @@ class RenameTableTest extends PostgresTestBase {
 
         assertFalse(tableExists(TARGET));
         assertTrue(tableExists(NEW_NAME));
-        Integer id = dsl.fetchOne("SELECT id FROM " + PUBLIC_SCHEMA + "." + NEW_NAME)
-                .get(0, Integer.class);
-        assertEquals(1, id, "the renamed table must preserve the original rows");
+        Record row = dsl.fetchOne("SELECT id FROM " + PUBLIC_SCHEMA + "." + NEW_NAME);
+        assertNotNull(row);
+        assertEquals(1, row.get(0, Integer.class), "the renamed table must preserve the original rows");
     }
 
     /**
@@ -65,15 +65,49 @@ class RenameTableTest extends PostgresTestBase {
         Record settings = getTableLockSettings(PUBLIC_SCHEMA, NEW_NAME);
         assertNotNull(settings);
         assertLockSettings(settings, 10, 20, 30);
+        assertFalse(tableExists(TARGET));
+        assertTrue(tableExists(NEW_NAME));
     }
 
     /**
-     * Rejects null arguments through their domains.
+     * A pre-existing settings row for the destination is replaced by the moved
+     * values (the procedure raises a NOTICE so the caller can see the collision).
+     */
+    @Test
+    void movesTableLockSettingsToNewNameReplacingDestination() {
+        setTableLockSettings(PUBLIC_SCHEMA, TARGET, 10, 20, 30);
+        setTableLockSettings(PUBLIC_SCHEMA, NEW_NAME, 100, 200, 300);
+
+        io.github.eyupmiduck.ddlutils.jooq.ddl_utils.Routines.renameTable(
+                dsl.configuration(), PUBLIC_SCHEMA, TARGET, NEW_NAME);
+
+        assertNull(getTableLockSettings(PUBLIC_SCHEMA, TARGET),
+                "the old name must not keep a stale settings row");
+        Record settings = getTableLockSettings(PUBLIC_SCHEMA, NEW_NAME);
+        assertNotNull(settings);
+        assertLockSettings(settings, 10, 20, 30);
+        assertFalse(tableExists(TARGET));
+        assertTrue(tableExists(NEW_NAME));
+    }
+
+    /**
+     * Rejects null arguments through their domains, including the schema and the
+     * three lock settings on the generic helper.
      */
     @Test
     void rejectsNullArguments() {
         assertDomainViolation(() -> renameTable(null, NEW_NAME));
         assertDomainViolation(() -> renameTable(TARGET, null));
+        assertDomainViolation(() -> io.github.eyupmiduck.ddlutils.jooq.ddl_utils.Routines.renameTable(
+                dsl.configuration(), null, TARGET, NEW_NAME));
+        assertDomainViolation(() -> Routines.renameTable(dsl.configuration(), null, TARGET, NEW_NAME,
+                DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
+        assertDomainViolation(() -> Routines.renameTable(dsl.configuration(), PUBLIC_SCHEMA, TARGET, NEW_NAME,
+                null, SLEEP_TIME, STATEMENT_DURATION));
+        assertDomainViolation(() -> Routines.renameTable(dsl.configuration(), PUBLIC_SCHEMA, TARGET, NEW_NAME,
+                DDL_LOCK_TIMEOUT, null, STATEMENT_DURATION));
+        assertDomainViolation(() -> Routines.renameTable(dsl.configuration(), PUBLIC_SCHEMA, TARGET, NEW_NAME,
+                DDL_LOCK_TIMEOUT, SLEEP_TIME, null));
     }
 
     private void renameTable(String table, String newName) {

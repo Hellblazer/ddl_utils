@@ -13,8 +13,12 @@ DECLARE
 BEGIN
     -- Lock-aware wrapper: resolves the settings for the table and delegates to
     -- the generic helper.
-    SELECT *
-    INTO l_settings
+    SELECT ls.ddl_lock_timeout,
+           ls.sleep_time,
+           ls.statement_duration
+    INTO STRICT l_settings.ddl_lock_timeout,
+        l_settings.sleep_time,
+        l_settings.statement_duration
     FROM ddl_utils.get_lock_settings(
                  i_schema_name => i_schema_name,
                  i_table_name => i_table_name
@@ -32,4 +36,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION ddl_utils.set_not_null IS
-    'Lock-aware wrapper: sets NOT NULL on a column.';
+    'Lock-aware wrapper: sets NOT NULL on a column. Unless a valid CHECK already '
+        'proves the column non-null, this takes ACCESS EXCLUSIVE and scans the '
+        'table; use ddl_utils.ensure_not_null for the scan-avoiding, resumable '
+        'form.';

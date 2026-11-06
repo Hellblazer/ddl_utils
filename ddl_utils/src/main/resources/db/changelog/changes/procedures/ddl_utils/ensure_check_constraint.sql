@@ -13,15 +13,52 @@ DECLARE
     l_relation regclass;
     l_lock_key bigint;
 BEGIN
+    -- PostgreSQL truncates an identifier to NAMEDATALEN - 1 bytes with only a
+    -- NOTICE. The catalog guards below compare conname with the untruncated
+    -- argument, so an over-long name would be added under a truncated name,
+    -- committed, and then fail to match on the validation/recovery path.
+    IF pg_catalog.octet_length(i_constraint_name) > 63 THEN
+        RAISE EXCEPTION
+            'ddl_utils.ensure_check_constraint: the constraint name must be at most 63 bytes'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- Read the lock settings once; they are reused across both steps.
-    SELECT *
-    INTO l_settings
+    SELECT ls.ddl_lock_timeout,
+           ls.sleep_time,
+           ls.statement_duration
+    INTO STRICT l_settings.ddl_lock_timeout,
+        l_settings.sleep_time,
+        l_settings.statement_duration
     FROM ddl_utils.get_lock_settings(
                  i_schema_name => i_schema_name,
                  i_table_name => i_table_name
          ) AS ls;
 
     l_relation := pg_catalog.format('%I.%I', i_schema_name, i_table_name)::regclass;
+
+    -- regclass only proves the relation exists; a view, sequence or index would
+    -- pass the catalog checks below and fail later inside ALTER TABLE.
+    IF (SELECT c.relkind
+        FROM pg_catalog.pg_class AS c
+        WHERE c.oid = l_relation) NOT IN ('r', 'p') THEN
+        RAISE EXCEPTION 'ddl_utils.ensure_check_constraint: %.% is not a table',
+            i_schema_name, i_table_name
+            USING ERRCODE = '42809';
+    END IF;
+
+    -- A same-named constraint of another kind would make add_check_constraint
+    -- fail with a generic duplicate-object error; name the conflict instead.
+    IF EXISTS (SELECT 1
+               FROM pg_catalog.pg_constraint
+               WHERE conname = i_constraint_name
+                 AND conrelid = l_relation
+                 AND contype <> 'c') THEN
+        RAISE EXCEPTION
+            'ddl_utils.ensure_check_constraint: constraint % already exists on %.% as a different kind of constraint',
+            i_constraint_name, i_schema_name, i_table_name
+            USING ERRCODE = '42710';
+    END IF;
 
     -- A transaction-scoped advisory lock on this table serializes concurrent
     -- runs. The read-then-act guards are separated by COMMIT, so the lock is
