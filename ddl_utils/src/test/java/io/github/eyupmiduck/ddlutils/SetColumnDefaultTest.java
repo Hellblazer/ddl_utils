@@ -72,6 +72,17 @@ class SetColumnDefaultTest extends SingleTableTest {
     }
 
     /**
+     * A comma inside a quoted string literal is not a top-level comma and is
+     * accepted, so a literal default can contain a comma end to end.
+     */
+    @Test
+    void acceptsCommaInsideQuotedLiteral() {
+        setColumnDefault("note", "'a,b'");
+
+        assertColumnDefault(PUBLIC_SCHEMA, target(), "note", "'a,b'");
+    }
+
+    /**
      * Rejects null or blank arguments through their domains before the body
      * runs.
      */
@@ -88,6 +99,17 @@ class SetColumnDefaultTest extends SingleTableTest {
         assertDomainViolation(() -> setColumnDefault("note", "'x'", -1, SLEEP_TIME, STATEMENT_DURATION));
         assertDomainViolation(() -> setColumnDefault("note", "'x'", DDL_LOCK_TIMEOUT, -1, STATEMENT_DURATION));
         assertDomainViolation(() -> setColumnDefault("note", "'x'", DDL_LOCK_TIMEOUT, SLEEP_TIME, -1));
+    }
+
+    /**
+     * An over-long column name is rejected with 22023 before the ALTER; a
+     * 63-byte name passes the length guard and fails later only because no such
+     * column exists (42703).
+     */
+    @Test
+    void boundsColumnNameLength() {
+        assertSqlState("22023", () -> setColumnDefault("c".repeat(64), "'x'"));
+        assertSqlState("42703", () -> setColumnDefault("c".repeat(63), "'x'"));
     }
 
     private void setColumnDefault(String column, String defaultValue) {

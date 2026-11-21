@@ -121,6 +121,28 @@ class AddDropIdentityTest extends SingleTableTest {
     }
 
     /**
+     * Adds and drops an identity on a column whose name needs double quotes, so
+     * a {@code %I} to {@code %s} regression in either helper cannot pass: the
+     * unquoted name would fold to lower case and miss the column.
+     */
+    @Test
+    void addsAndDropsIdentityOnAColumnThatNeedsQuoting() {
+        String column = "Mixed Case";
+        dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + target() + " ADD COLUMN \""
+                + column + "\" int NOT NULL");
+
+        addIdentity(column, "ALWAYS");
+        assertEquals("a", columnIdentity(PUBLIC_SCHEMA, target(), column),
+                "the identity must be added to the quoted column");
+
+        dropIdentity(column, false);
+        assertEquals("", columnIdentity(PUBLIC_SCHEMA, target(), column),
+                "the identity must be dropped from the quoted column");
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), column),
+                "dropping the identity must leave the column in place");
+    }
+
+    /**
      * Drops the identity, leaving the column and its data in place.
      */
     @Test
@@ -195,6 +217,19 @@ class AddDropIdentityTest extends SingleTableTest {
 
         assertEquals("", columnIdentity(PUBLIC_SCHEMA, target(), "id"),
                 "a rejected call must not have added an identity");
+    }
+
+    /**
+     * Both identity helpers reject an over-long column name with 22023 before
+     * the ALTER. A 63-byte name passes the length guard and fails later only
+     * because no such column exists (42703), which pins the inclusive boundary.
+     */
+    @Test
+    void boundsColumnNameLength() {
+        assertSqlState("22023", () -> addIdentity("a".repeat(64), "by default"));
+        assertSqlState("42703", () -> addIdentity("a".repeat(63), "by default"));
+        assertSqlState("22023", () -> dropIdentity("a".repeat(64), true));
+        assertSqlState("42703", () -> dropIdentity("a".repeat(63), true));
     }
 
     private void addIdentity(String column, String generated) {

@@ -99,6 +99,45 @@ class SetColumnAttributeTest extends SingleTableTest {
     }
 
     /**
+     * The storage fragment uses pg_catalog.lower, not a search_path-shadowing
+     * lower(), so a caller cannot change the emitted keyword.
+     */
+    @Test
+    void storageUsesTheBuiltInLowerWhenSearchPathShadowsIt() {
+        dsl.execute("CREATE OR REPLACE FUNCTION public.lower(text) RETURNS text "
+                + "LANGUAGE sql IMMUTABLE AS $$ SELECT 'pglz'::text $$");
+        try {
+            dsl.transaction(configuration -> {
+                DSLContext tx = DSL.using(configuration);
+                tx.execute("SET LOCAL search_path = public, pg_catalog");
+                Routines.setColumnStorage(tx.configuration(), PUBLIC_SCHEMA, target(), "note", "EXTERNAL",
+                        DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION);
+            });
+
+            assertEquals("external", columnStorage(PUBLIC_SCHEMA, target(), "note"),
+                    "the built-in lower must be used, not public.lower");
+        } finally {
+            dsl.execute("DROP FUNCTION IF EXISTS public.lower(text)");
+        }
+    }
+
+    /**
+     * The {@code default} compression keyword is accepted and resets the column
+     * to the server default method, so the reset path is covered and not only
+     * the named methods.
+     */
+    @Test
+    void resetsCompressionToDefault() {
+        setCompression("note", "lz4");
+        assertEquals("lz4", columnCompression(PUBLIC_SCHEMA, target(), "note"));
+
+        setCompression("note", "default");
+
+        assertEquals("default", columnCompression(PUBLIC_SCHEMA, target(), "note"),
+                "SET COMPRESSION default must reset the column to the default method");
+    }
+
+    /**
      * Rejects null arguments through their domains before the body runs.
      */
     @Test
@@ -122,6 +161,19 @@ class SetColumnAttributeTest extends SingleTableTest {
         assertDomainViolation(() -> setCompression("note", "pglz", -1, SLEEP_TIME, STATEMENT_DURATION));
         assertDomainViolation(() -> setCompression("note", "pglz", DDL_LOCK_TIMEOUT, -1, STATEMENT_DURATION));
         assertDomainViolation(() -> setCompression("note", "pglz", DDL_LOCK_TIMEOUT, SLEEP_TIME, -1));
+    }
+
+    /**
+     * Both attribute helpers reject an over-long column name with 22023 before
+     * the ALTER; a 63-byte name passes the length guard and fails later only
+     * because no such column exists (42703).
+     */
+    @Test
+    void boundsColumnNameLength() {
+        assertSqlState("22023", () -> setStorage("c".repeat(64), "external"));
+        assertSqlState("42703", () -> setStorage("c".repeat(63), "external"));
+        assertSqlState("22023", () -> setCompression("c".repeat(64), "lz4"));
+        assertSqlState("42703", () -> setCompression("c".repeat(63), "lz4"));
     }
 
     private void setStorage(String column, String storage) {

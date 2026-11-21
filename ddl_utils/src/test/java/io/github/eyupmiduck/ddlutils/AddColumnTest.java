@@ -109,10 +109,15 @@ class AddColumnTest extends SingleTableTest {
     }
 
     /**
-     * Rejects null for each mandatory text argument through its domain.
+     * Rejects null for each mandatory text argument (schema, table, column and
+     * type) through its domain, so a caller cannot pass an incomplete target.
      */
     @Test
     void rejectsNullTextArguments() {
+        assertDomainViolation(() -> Routines.addColumn(dsl.configuration(),
+                null, target(), "note", "text", true, null, 100, 100, 1000));
+        assertDomainViolation(() -> Routines.addColumn(dsl.configuration(),
+                PUBLIC_SCHEMA, null, "note", "text", true, null, 100, 100, 1000));
         assertDomainViolation(() -> addColumn(null, "text", true, null, 100, 100, 1000));
         assertDomainViolation(() -> addColumn("note", null, true, null, 100, 100, 1000));
     }
@@ -134,6 +139,23 @@ class AddColumnTest extends SingleTableTest {
         // statement_duration is null / negative
         assertDomainViolation(() -> addColumn("note", "text", true, null, 100, 100, null));
         assertDomainViolation(() -> addColumn("note", "text", true, null, 100, 100, -1));
+    }
+
+    /**
+     * A 63-byte column name (the identifier maximum) is created; a 64-byte name
+     * is rejected with 22023 before the ALTER, so no truncated column appears.
+     */
+    @Test
+    void boundsColumnNameLength() {
+        String atLimit = "a".repeat(63);
+
+        addColumn(atLimit, "int", true, null, DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION);
+
+        assertTrue(hasColumn(PUBLIC_SCHEMA, target(), atLimit));
+        assertSqlState("22023", () -> addColumn("b".repeat(64), "int", true, null,
+                DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
+        assertFalse(hasColumn(PUBLIC_SCHEMA, target(), "b".repeat(63)),
+                "a rejected over-long name must not leave a truncated column behind");
     }
 
     private void addColumn(String column, String type, Boolean nullable, String defaultValue,

@@ -153,6 +153,16 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-ddl_utils_lib.assert_identifier_length" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/assert_identifier_length.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/assert_identifier_length-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-ddl_utils_lib.quote_identifiers" author="lee.horner" dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/ddl_utils_lib/quote_identifiers.sql" relativeToChangelogFile="true"/>
         <rollback>
@@ -386,6 +396,16 @@
         <createProcedure path="functions/ddl_utils/add_check_constraint.sql" relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/ddl_utils/add_check_constraint-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.foreign_key_definition_matches" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/foreign_key_definition_matches.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/foreign_key_definition_matches-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>

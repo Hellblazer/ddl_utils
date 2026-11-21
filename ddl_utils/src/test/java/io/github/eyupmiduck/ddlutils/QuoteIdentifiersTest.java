@@ -1,11 +1,9 @@
 package io.github.eyupmiduck.ddlutils;
 
-import org.junit.jupiter.api.Test;
 import org.jooq.exception.DataAccessException;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code ddl_utils_lib.quote_identifiers}: it joins identifiers into a
@@ -102,7 +100,8 @@ class QuoteIdentifiersTest extends PostgresTestBase {
 
     /**
      * The SQL default for i_prefix (an empty string) is usable; this is the
-     * path add_column/add_foreign_key rely on when they pass only identifiers.
+     * path {@code add_foreign_key} relies on when it passes only the identifier
+     * arrays (the other callers pass an explicit prefix).
      */
     @Test
     void appliesDefaultEmptyPrefix() {
