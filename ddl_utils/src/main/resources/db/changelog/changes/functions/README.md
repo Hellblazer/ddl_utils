@@ -15,6 +15,10 @@ changeset; the matching drop lives in `changes/functions-rollback/`. Every
 routine is `SECURITY INVOKER` except the setters/clearers, which are
 `SECURITY DEFINER` (callers only have `SELECT` on the settings tables).
 
+Nothing is deployed yet, so a signature change is made in place in the function
+file and its rollback. Do not add `DROP FUNCTION IF EXISTS <old signature>`
+guards or compatibility changesets.
+
 Each routine file ends with a `COMMENT ON FUNCTION` / `COMMENT ON PROCEDURE`
 for the routine it creates, using the short form (`schema.name`, no argument
 list). If a routine is ever overloaded, include its argument types so the

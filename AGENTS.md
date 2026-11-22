@@ -195,10 +195,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   Liquibase has no `createFunction` change type, so functions use
   `createProcedure` too; the `path` attribute keeps SQL out of the XML.
 - `CREATE OR REPLACE` only replaces a routine with an identical signature.
-  Changing `RETURNS` or a parameter name aborts the deploy, and changing a
-  parameter type leaves the old overload behind. When a signature changes, add
-  an explicit `DROP FUNCTION IF EXISTS <old signature>;` (for example another
-  `sqlFile` in the same changeset) so the deprecated signature is removed.
+  Nothing is deployed yet, so a signature change is made in place: edit the
+  routine file and let `CREATE OR REPLACE` define the one current signature. Do
+  not add `DROP FUNCTION IF EXISTS <old signature>;` guards or compatibility
+  changesets — a fresh database (and every test and CI database) defines only
+  the new signature. Update the paired rollback in the same change, because it
+  drops the current signature. `RoutineSignatureTest` fails the build if a
+  routine name ends up with more than one signature unless the overload is
+  explicitly allow-listed.
 - Type routine arguments with the `ddl_utils` domains (for example
   `non_null_text`, `non_negative_integer`) so null or invalid inputs fail
   fast with a check-constraint violation.

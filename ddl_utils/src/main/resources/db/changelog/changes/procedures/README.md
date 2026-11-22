@@ -7,9 +7,14 @@ table is held under a lock until the caller's transaction ends. A procedure can
 what makes a long verification scan tolerable.
 
 One procedure per `.sql` file under `procedures/<schema>/`, named `snake_case`
-without an `NNN-` prefix. `changes/procedures.xml` holds one `NNN-`prefixed
-`runOnChange` changeset per procedure (a `createProcedure` plus its rollback);
-`changes/procedures-rollback/<schema>/` holds the rollback bodies.
+without an `NNN-` prefix. `changes/procedures.xml` holds one
+`procedure-<schema>.<name>` `runOnChange` changeset per procedure (a
+`createProcedure` plus its rollback); `changes/procedures-rollback/<schema>/`
+holds the rollback bodies.
+
+Nothing is deployed yet, so a signature change is made in place in the procedure
+file and its rollback. Do not add `DROP PROCEDURE IF EXISTS <old signature>`
+guards or compatibility changesets.
 
 ## The orchestration rule
 
