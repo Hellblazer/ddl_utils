@@ -374,6 +374,10 @@ whitelist entry both fail the build); skip it with
 `-Dskip.liquibase-linter`. The `Changelog linter` CI workflow additionally
 uploads the linter's SARIF output to GitHub code scanning, so findings show
 inline on pull requests.
+The previous-release upgrade test (`LiquibaseUpgradeTest`) is disabled with
+`@Disabled` only while the living-changelog baseline is reworked (epic
+`lv-ahk`); it is renamed to `BaselineUpgradeTest` and re-enabled after a normal
+release from `main` provides the new baseline.
 `PlpgsqlCheckTest` also runs `plpgsql_check` over every routine and fails on any
 finding not accepted in `plpgsql-check-whitelist.yml`, using the shared
 `PlpgsqlCheck` helper from `liquibase-validation`. See

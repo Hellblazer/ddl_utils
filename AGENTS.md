@@ -90,6 +90,11 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   with `contents` and `pull-requests` write); the default `GITHUB_TOKEN` is not
   used because GitHub suppresses workflow runs for events it creates, which
   would leave the PR without the required checks.
+- The previous-release upgrade test is `LiquibaseUpgradeTest` today. It is
+  disabled with `@Disabled` only while the living-changelog baseline is reworked
+  (epic `lv-ahk`); it is renamed to `BaselineUpgradeTest` and re-enabled after a
+  normal release from `main` provides the new baseline. Do not delete the shared
+  upgrade support or the `upgrade.current.version` property during that window.
 - A release is a `v<version>` tag pushed to `main`. The `Release` workflow (`.github/workflows/release.yml`) derives the
   version from the tag (`-Drevision=${tag#v}`), runs the full `verify` gate, deploys to GitHub
   Packages, then creates the GitHub Release. Do not tag a commit that CI has
@@ -279,8 +284,9 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   containers in individual tests.
 - The container configuration is the single `PostgresTestBase.CONFIGURATION`
   value, which also carries the extension installer. Return it from
-  `configuration()` in the base, the contract tests and `LiquibaseUpgradeTest`
-  instead of overriding the individual accessors.
+  `configuration()` in the base, the contract tests and the upgrade test
+  (`LiquibaseUpgradeTest` today, re-enabled as `BaselineUpgradeTest` after the
+  baseline release) instead of overriding the individual accessors.
 - A test whose shape already exists as a contract inherits it rather than
   copying the body: `ChangelogLinterContract`, `ChangelogNamingContract`,
   `ChangelogSqlFilesContract`, `TrackingTablesContract`,
