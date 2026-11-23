@@ -95,7 +95,8 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   the current changelog, and compares the two catalogs. It is enabled in the
   normal `verify` gate; disable it only while a baseline is edited in place, and
   re-enable it after the replacement release. Do not delete the shared upgrade
-  support or the `upgrade.current.version` property.
+  support or the `upgrade.current.version` property. Any later in-place schema
+  edit repeats the disable -> baseline release -> re-enable cycle.
 - A release is a `v<version>` tag pushed to `main`. The `Release` workflow (`.github/workflows/release.yml`) derives the
   version from the tag (`-Drevision=${tag#v}`), runs the full `verify` gate, deploys to GitHub
   Packages, then creates the GitHub Release. Do not tag a commit that CI has
@@ -252,7 +253,7 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   lints the changelog `.sql` files
   during `verify` via `exec-maven-plugin`. Requires `sqlfluff` on PATH (use
   the repo's `.venv`); skip with `-Dskip.sqlfluff`.
-- The Liquibase changelog linter (`liquibase-validation`, bead epic `ddl-w8y`)
+- The Liquibase changelog linter (`liquibase-validation`)
   also runs during `verify` over the changelog directory. It applies rules that
   need both the SQL and the changeset attributes (for example a statement
   PostgreSQL forbids in a transaction must be in a `runInTransaction="false"`
@@ -309,9 +310,12 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   `CommentContract`, `AuditColumnsContract`, `PlpgsqlCheckContract`,
   `RollbackSignatureContract`, `RoutineSignatureContract`,
   `RoutineDocumentationContract`, `PrivilegeContract`, `RoutineSecurityContract`,
+  `SchemaLayeringContract`, `RoutineFileContract`,
   `ChangelogRoundTripContract`, `ChangelogReapplyContract` and `UpgradeContract`.
   Supply only the project profile and the project-specific allow-lists (for
   example `allowedSecurityDefiners()` or `applicationTypes()`).
+  `SchemaLayeringContract` defaults to the managed schemas ordered highest to
+  lowest; override `schemaLayers()` when they are not in dependency order.
 - `ChangelogRoundTripContract` and `ChangelogReapplyContract` are live
   Testcontainers tests: they create a scratch database per contract class, apply
   the changelog, roll it back or re-apply it, and compare the catalog. They run
