@@ -79,7 +79,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
 
     /**
      * The container configuration, shared by this base and
-     * {@link LiquibaseUpgradeTest} so the two cannot drift (the container's
+     * {@link BaselineUpgradeTest} so the two cannot drift (the container's
      * template database is prepared once per JVM from the first class that
      * runs, so an inconsistent configuration would be order-dependent).
      */
@@ -92,7 +92,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
 
     /**
      * The one container and changelog configuration, returned by this class and
-     * by {@link LiquibaseUpgradeTest} so the two cannot drift.
+     * by {@link BaselineUpgradeTest} so the two cannot drift.
      */
     static final Configuration CONFIGURATION = new Configuration(
             DATABASE, OWNER_USER, OWNER_PASSWORD, TEST_USER, TEST_PASSWORD,
@@ -162,7 +162,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     /**
      * Installs the static-analysis extension (compiled into the custom image)
      * so a database has it before the changelog runs. Shared with
-     * {@link LiquibaseUpgradeTest}, whose scratch database needs the same
+     * {@link BaselineUpgradeTest}, whose scratch database needs the same
      * extension.
      *
      * @param admin a superuser connection to the target database
