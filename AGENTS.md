@@ -90,11 +90,12 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   with `contents` and `pull-requests` write); the default `GITHUB_TOKEN` is not
   used because GitHub suppresses workflow runs for events it creates, which
   would leave the PR without the required checks.
-- The previous-release upgrade test is `LiquibaseUpgradeTest` today. It is
-  disabled with `@Disabled` only while the living-changelog baseline is reworked (epic `lv-ahk`); it is renamed to
-  `BaselineUpgradeTest` and re-enabled after a
-  normal release from `main` provides the new baseline. Do not delete the shared
-  upgrade support or the `upgrade.current.version` property during that window.
+- The previous-release upgrade test is `BaselineUpgradeTest`. It resolves the
+  latest published release strictly below the current revision, applies it, then
+  the current changelog, and compares the two catalogs. It is enabled in the
+  normal `verify` gate; disable it only while a baseline is edited in place, and
+  re-enable it after the replacement release. Do not delete the shared upgrade
+  support or the `upgrade.current.version` property.
 - A release is a `v<version>` tag pushed to `main`. The `Release` workflow (`.github/workflows/release.yml`) derives the
   version from the tag (`-Drevision=${tag#v}`), runs the full `verify` gate, deploys to GitHub
   Packages, then creates the GitHub Release. Do not tag a commit that CI has
@@ -298,8 +299,7 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   value: the container/changelog `CONFIGURATION`, the managed/application/
   routine schemas, the caller role, the rollback directories and the round-trip
   schemas/baseline changelogs. Return it from `projectProfile()` in the base,
-  every contract subclass and the upgrade test (`LiquibaseUpgradeTest` today,
-  re-enabled as `BaselineUpgradeTest` after the baseline release) instead of
+  every contract subclass and the upgrade test (`BaselineUpgradeTest`) instead of
   overriding the individual accessors. A contract subclass that needs the
   container must override `projectProfile()`; the library defaults do not know
   the project's roles or image.
