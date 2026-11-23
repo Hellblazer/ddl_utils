@@ -277,7 +277,8 @@ composes that scan-avoiding sequence.
 Lock-aware wrapper over `ddl_utils_lib.add_check_constraint`; adds the
 constraint `NOT VALID`.
 
-### `ddl_utils.add_foreign_key(i_schema_name, i_table_name, i_constraint_name, i_column_names, i_referenced_schema_name, i_referenced_table_name, i_referenced_column_names)`
+###
+`ddl_utils.add_foreign_key(i_schema_name, i_table_name, i_constraint_name, i_column_names, i_referenced_schema_name, i_referenced_table_name, i_referenced_column_names)`
 
 Lock-aware wrapper over `ddl_utils_lib.add_foreign_key`; adds the constraint
 `NOT VALID` and resolves only the referencing table's settings.
@@ -312,8 +313,8 @@ over the matching `ddl_utils_lib` helpers (same names). `add_check_constraint`
 and `add_foreign_key` emit `NOT VALID` (metadata-only); call
 `ddl_utils_lib.validate_constraint` separately to enforce the constraint
 against existing rows (it scans but takes only `SHARE UPDATE EXCLUSIVE`, so it
-has no lock-aware wrapper). `ddl_utils.add_foreign_key` resolves only the altered
-(referencing) table's lock settings, although `ADD FOREIGN KEY` also takes
+has no lock-aware wrapper). `ddl_utils.add_foreign_key` resolves only the altered (referencing) table's lock settings,
+although `ADD FOREIGN KEY` also takes
 `SHARE ROW EXCLUSIVE` on the referenced table; an override for the referenced
 table is not honoured. The two `*_using_index` helpers attach a pre-built
 unique index (`CREATE UNIQUE INDEX CONCURRENTLY`), which is metadata-only when
@@ -735,7 +736,9 @@ RETURNS void
 `SECURITY INVOKER`. Adds a foreign key as `NOT VALID` (no scan; takes `SHARE
 ROW EXCLUSIVE` on both tables). The two column arrays must be non-empty and of
 equal length; blank names are rejected with `22023`.
+
 ###
+
 `ddl_utils_lib.foreign_key_definition_matches(i_schema_name, i_table_name, i_constraint_name, i_referenced_schema_name, i_referenced_table_name, i_column_names, i_referenced_column_names)`
 
 ```sql

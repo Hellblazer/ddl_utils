@@ -1,7 +1,7 @@
 package io.github.eyupmiduck.ddlutils;
 
-import io.github.eyupmiduck.changelogvalidator.testing.TrackingTablesContract;
 import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
+import io.github.eyupmiduck.changelogvalidator.testing.TrackingTablesContract;
 
 /**
  * Verifies that Liquibase keeps its tracking tables out of the application

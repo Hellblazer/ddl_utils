@@ -13,10 +13,7 @@ import java.sql.Statement;
 import java.util.Collection;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * ddl_utils' PostgreSQL test base: the shared
@@ -115,6 +112,14 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             .triggerRollbackDirectories("db/changelog/changes/triggers-rollback")
             .roundTripSchemas(DDL_UTILS_SCHEMA, DDL_UTILS_LIB_SCHEMA)
             .build();
+    /**
+     * The database defaults captured by {@link #deleteDatabaseDefaults}, so
+     * {@link #restoreDeletedDatabaseDefaults} can put the row back after the
+     * test even when it fails before restoring explicitly.
+     */
+    private Integer deletedDdlLockTimeout;
+    private Integer deletedSleepTime;
+    private Integer deletedStatementDuration;
 
     /**
      * Asserts that a lock-settings row holds the expected values.
@@ -369,15 +374,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                         FROM ddl_utils.get_database_lock_settings()
                         """);
     }
-
-    /**
-     * The database defaults captured by {@link #deleteDatabaseDefaults}, so
-     * {@link #restoreDeletedDatabaseDefaults} can put the row back after the
-     * test even when it fails before restoring explicitly.
-     */
-    private Integer deletedDdlLockTimeout;
-    private Integer deletedSleepTime;
-    private Integer deletedStatementDuration;
 
     /**
      * Deletes the singleton database defaults row, for tests that exercise the

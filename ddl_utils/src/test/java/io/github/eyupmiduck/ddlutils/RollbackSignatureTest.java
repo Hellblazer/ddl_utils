@@ -1,7 +1,7 @@
 package io.github.eyupmiduck.ddlutils;
 
-import io.github.eyupmiduck.changelogvalidator.testing.RollbackSignatureContract;
 import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
+import io.github.eyupmiduck.changelogvalidator.testing.RollbackSignatureContract;
 import io.github.eyupmiduck.changelogvalidator.testing.TestResources;
 import org.junit.jupiter.api.Test;
 

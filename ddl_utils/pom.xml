@@ -163,7 +163,9 @@
                                              unanchored substring would also hide
                                              any future object whose name merely
                                              contains the same words. -->
-                                        <excludes>^(ddl_utils\.non_empty_non_null_text_array|ddl_utils\.non_empty_non_null_boolean_array|ddl_utils\.non_empty_text_array|ddl_utils\.lock_settings)$</excludes>
+                                        <excludes>
+                                            ^(ddl_utils\.non_empty_non_null_text_array|ddl_utils\.non_empty_non_null_boolean_array|ddl_utils\.non_empty_text_array|ddl_utils\.lock_settings)$
+                                        </excludes>
                                         <!-- jOOQ cannot combine several
                                              schemata in one <inputSchema>;
                                              each schema maps to its own

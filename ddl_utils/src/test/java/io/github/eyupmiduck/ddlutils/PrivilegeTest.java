@@ -62,14 +62,14 @@ class PrivilegeTest extends PrivilegeContract {
                 "the shared set_updated_at trigger function must exist exactly once");
 
         Integer triggerExecutable = dsl.fetchOne("""
-                SELECT count(*)::int
-                FROM pg_proc AS p
-                JOIN pg_namespace AS n ON n.oid = p.pronamespace
-                WHERE n.nspname = ?
-                  AND p.proname = 'set_updated_at'
-                  AND p.prorettype = 'trigger'::pg_catalog.regtype
-                  AND pg_catalog.has_function_privilege(?, p.oid, 'EXECUTE')
-                """, PostgresTestBase.DDL_UTILS_SCHEMA, PostgresTestBase.DDL_UTILS_CALLER)
+                        SELECT count(*)::int
+                        FROM pg_proc AS p
+                        JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                        WHERE n.nspname = ?
+                          AND p.proname = 'set_updated_at'
+                          AND p.prorettype = 'trigger'::pg_catalog.regtype
+                          AND pg_catalog.has_function_privilege(?, p.oid, 'EXECUTE')
+                        """, PostgresTestBase.DDL_UTILS_SCHEMA, PostgresTestBase.DDL_UTILS_CALLER)
                 .get(0, Integer.class);
         assertEquals(0, triggerExecutable,
                 "the trigger function must not be executable by " + PostgresTestBase.DDL_UTILS_CALLER);

@@ -270,7 +270,7 @@ class AlterTableTest extends SingleTableTest {
                 tx.transaction(inner -> DSL.using(inner).fetch(
                         "SELECT ddl_utils_lib.alter_table(?, ?, ?, ?, ?, ?)",
                         PUBLIC_SCHEMA, target(), "ADD COLUMN x int; SELECT 1",
-                                DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
+                        DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
                 fail("expected the invalid fragment to be rejected");
             } catch (DataAccessException expected) {
                 assertEquals("22023", expected.sqlState());

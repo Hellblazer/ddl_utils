@@ -1,7 +1,7 @@
 package io.github.eyupmiduck.ddlutils;
 
-import io.github.eyupmiduck.changelogvalidator.testing.RoutineSignatureContract;
 import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
+import io.github.eyupmiduck.changelogvalidator.testing.RoutineSignatureContract;
 
 /**
  * Verifies that every routine name in the {@code ddl_utils} and

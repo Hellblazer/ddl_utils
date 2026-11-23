@@ -1,7 +1,7 @@
 package io.github.eyupmiduck.ddlutils;
 
-import io.github.eyupmiduck.changelogvalidator.testing.RoutineDocumentationContract;
 import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
+import io.github.eyupmiduck.changelogvalidator.testing.RoutineDocumentationContract;
 
 /**
  * Verifies that every routine has a README section and that no README section
