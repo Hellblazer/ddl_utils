@@ -63,9 +63,9 @@ BEGIN
                     i_context => 'ddl_utils_lib.add_columns',
                     i_argument => pg_catalog.format('i_column_names[%s]', l_index));
 
-        -- The type is spliced in as raw SQL, so require it to resolve to a
-        -- single SQL type. This rejects extra clauses such as 'int, DROP COLUMN
-        -- x' or 'int DEFAULT 0'.
+            -- The type is spliced in as raw SQL, so require it to resolve to a
+            -- single SQL type. This rejects extra clauses such as 'int, DROP COLUMN
+            -- x' or 'int DEFAULT 0'.
             l_regtype := NULL;
             BEGIN
                 l_regtype := pg_catalog.to_regtype(i_column_types[l_index]);

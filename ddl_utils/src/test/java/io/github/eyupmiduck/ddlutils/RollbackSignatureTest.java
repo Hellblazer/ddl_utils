@@ -1,10 +1,9 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 import io.github.eyupmiduck.changelogvalidator.testing.RollbackSignatureContract;
 import io.github.eyupmiduck.changelogvalidator.testing.TestResources;
 import org.junit.jupiter.api.Test;
-
-import java.util.Collection;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
@@ -21,37 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 class RollbackSignatureTest extends RollbackSignatureContract {
 
     /**
-     * The ddl_utils container and changelog configuration.
-     *
-     * @return the configuration
-     */
-    @Override
-    protected Configuration configuration() {
-        return PostgresTestBase.CONFIGURATION;
-    }
-
-    /**
-     * The schemas that hold the project's routines, taken from the shared
-     * constants so a schema rename cannot silently enumerate nothing.
-     *
-     * @return the routine schemas
-     */
-    @Override
-    protected Collection<String> routineSchemas() {
-        return PostgresTestBase.ROUTINE_SCHEMAS;
-    }
-
-    /**
-     * The rollback trees for the functions and procedures.
-     *
-     * @return the rollback directories
-     */
-    @Override
-    protected Collection<String> rollbackDirectories() {
-        return PostgresTestBase.ROUTINE_ROLLBACK_DIRECTORIES;
-    }
-
-    /**
      * Every configured routine schema holds at least one routine and every
      * rollback directory holds at least one SQL file, so the inherited contract
      * cannot pass by inspecting an empty set on either side.
@@ -66,5 +34,16 @@ class RollbackSignatureTest extends RollbackSignatureContract {
             assertFalse(TestResources.readSqlFiles(directory).isEmpty(),
                     () -> "no rollback SQL files found in " + directory);
         }
+    }
+
+    /**
+     * The ddl_utils profile, so this contract uses the project's roles, image,
+     * changelog and schemas rather than the library defaults.
+     *
+     * @return the ddl_utils profile
+     */
+    @Override
+    protected ProjectProfile projectProfile() {
+        return PostgresTestBase.PROFILE;
     }
 }

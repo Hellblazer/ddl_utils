@@ -163,7 +163,9 @@
                                              unanchored substring would also hide
                                              any future object whose name merely
                                              contains the same words. -->
-                                        <excludes>^(ddl_utils\.non_empty_non_null_text_array|ddl_utils\.non_empty_non_null_boolean_array|ddl_utils\.non_empty_text_array|ddl_utils\.lock_settings)$</excludes>
+                                        <excludes>
+                                            ^(ddl_utils\.non_empty_non_null_text_array|ddl_utils\.non_empty_non_null_boolean_array|ddl_utils\.non_empty_text_array|ddl_utils\.lock_settings)$
+                                        </excludes>
                                         <!-- jOOQ cannot combine several
                                              schemata in one <inputSchema>;
                                              each schema maps to its own
@@ -256,8 +258,10 @@
             </plugin>
 
             <!-- Pass the PostgreSQL image and the current version to tests so
-                 they use the same version as jOOQ codegen and can resolve the
-                 previous release below it. -->
+                 they use the same version as jOOQ codegen. upgrade.current.version
+                 is retained for LiquibaseUpgradeTest, which is disabled (epic
+                 lv-ahk) until it is re-enabled as BaselineUpgradeTest against
+                 the post-rework baseline release. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

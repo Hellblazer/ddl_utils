@@ -11,13 +11,14 @@
          body that changed, and each routine carries its own rollback under
          procedures-rollback/<schema>/.
 
-         CREATE OR REPLACE only replaces a procedure with an identical
-         signature: changing a parameter name or type aborts the deploy or
-         silently leaves the old overload behind. When a signature changes, add
-         an explicit DROP PROCEDURE IF EXISTS <old signature>; in that
-         procedure's changeset. RoutineSignatureTest fails the build if a
-         routine name ends up with more than one signature unless the overload
-         is explicitly allow-listed.
+         Nothing is deployed yet, so a signature change is made in place: edit
+         the procedure file and let CREATE OR REPLACE define the one current
+         signature. Do not add `DROP PROCEDURE IF EXISTS <old signature>` guards
+         or compatibility changesets; a fresh database defines only the new
+         signature. Update the paired rollback in the same change, because it
+         drops the current signature. RoutineSignatureTest fails the build if a
+         routine name ends up with more than one signature unless the overload is
+         explicitly allow-listed.
 
          A procedure commits between its ALTER TABLE steps, so a CALL must run
          in autocommit (inside a client transaction block PostgreSQL raises

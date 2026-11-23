@@ -15,6 +15,10 @@ changeset; the matching drop lives in `changes/functions-rollback/`. Every
 routine is `SECURITY INVOKER` except the setters/clearers, which are
 `SECURITY DEFINER` (callers only have `SELECT` on the settings tables).
 
+Nothing is deployed yet, so a signature change is made in place in the function
+file and its rollback. Do not add `DROP FUNCTION IF EXISTS <old signature>`
+guards or compatibility changesets.
+
 Each routine file ends with a `COMMENT ON FUNCTION` / `COMMENT ON PROCEDURE`
 for the routine it creates, using the short form (`schema.name`, no argument
 list). If a routine is ever overloaded, include its argument types so the
@@ -122,6 +126,12 @@ RETURNS void
 
 `SECURITY DEFINER`. Deletes the table's row; a no-op when there is none.
 
+### `ddl_utils.move_table_lock_settings(i_schema_name, i_table_name, i_new_table_name)`
+
+`SECURITY DEFINER`. Moves the table's settings row after a rename; a missing
+source row is a no-op and an existing destination row is replaced with a
+`NOTICE`.
+
 ### `ddl_utils.get_lock_settings(i_schema_name, i_table_name)`
 
 ```sql
@@ -214,6 +224,42 @@ RETURNS void
 
 ### Column attributes
 
+### `ddl_utils.set_column_default(i_schema_name, i_table_name, i_column_name, i_default_value)`
+
+Lock-aware wrapper over `ddl_utils_lib.set_column_default`.
+
+### `ddl_utils.drop_column_default(i_schema_name, i_table_name, i_column_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.drop_column_default`.
+
+### `ddl_utils.drop_not_null(i_schema_name, i_table_name, i_column_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.drop_not_null`.
+
+### `ddl_utils.set_not_null(i_schema_name, i_table_name, i_column_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.set_not_null`.
+
+### `ddl_utils.set_column_storage(i_schema_name, i_table_name, i_column_name, i_storage)`
+
+Lock-aware wrapper over `ddl_utils_lib.set_column_storage`.
+
+### `ddl_utils.set_column_compression(i_schema_name, i_table_name, i_column_name, i_compression)`
+
+Lock-aware wrapper over `ddl_utils_lib.set_column_compression`.
+
+### `ddl_utils.drop_expression(i_schema_name, i_table_name, i_column_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.drop_expression`.
+
+### `ddl_utils.add_identity(i_schema_name, i_table_name, i_column_name, i_generated)`
+
+Lock-aware wrapper over `ddl_utils_lib.add_identity`.
+
+### `ddl_utils.drop_identity(i_schema_name, i_table_name, i_column_name, i_if_exists)`
+
+Lock-aware wrapper over `ddl_utils_lib.drop_identity`.
+
 `ddl_utils.set_column_default`, `drop_column_default`, `drop_not_null`,
 `set_not_null`, `set_column_storage`, `set_column_compression`,
 `drop_expression`, `add_identity` and `drop_identity` are lock-aware wrappers
@@ -226,6 +272,40 @@ composes that scan-avoiding sequence.
 
 ### Constraints and tables
 
+### `ddl_utils.add_check_constraint(i_schema_name, i_table_name, i_constraint_name, i_check_expression)`
+
+Lock-aware wrapper over `ddl_utils_lib.add_check_constraint`; adds the
+constraint `NOT VALID`.
+
+###
+`ddl_utils.add_foreign_key(i_schema_name, i_table_name, i_constraint_name, i_column_names, i_referenced_schema_name, i_referenced_table_name, i_referenced_column_names)`
+
+Lock-aware wrapper over `ddl_utils_lib.add_foreign_key`; adds the constraint
+`NOT VALID` and resolves only the referencing table's settings.
+
+### `ddl_utils.drop_constraint(i_schema_name, i_table_name, i_constraint_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.drop_constraint`.
+
+### `ddl_utils.rename_constraint(i_schema_name, i_table_name, i_constraint_name, i_new_constraint_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.rename_constraint`.
+
+### `ddl_utils.add_primary_key_using_index(i_schema_name, i_table_name, i_constraint_name, i_index_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.add_primary_key_using_index`; attaches a
+pre-built unique index.
+
+### `ddl_utils.add_unique_constraint_using_index(i_schema_name, i_table_name, i_constraint_name, i_index_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.add_unique_constraint_using_index`;
+attaches a pre-built unique index.
+
+### `ddl_utils.rename_table(i_schema_name, i_table_name, i_new_table_name)`
+
+Lock-aware wrapper over `ddl_utils_lib.rename_table`; also moves the table's
+lock-settings row to the new name.
+
 `ddl_utils.add_check_constraint`, `add_foreign_key`, `drop_constraint`,
 `rename_constraint`, `add_primary_key_using_index`,
 `add_unique_constraint_using_index` and `rename_table` are lock-aware wrappers
@@ -233,8 +313,8 @@ over the matching `ddl_utils_lib` helpers (same names). `add_check_constraint`
 and `add_foreign_key` emit `NOT VALID` (metadata-only); call
 `ddl_utils_lib.validate_constraint` separately to enforce the constraint
 against existing rows (it scans but takes only `SHARE UPDATE EXCLUSIVE`, so it
-has no lock-aware wrapper). `ddl_utils.add_foreign_key` resolves only the altered
-(referencing) table's lock settings, although `ADD FOREIGN KEY` also takes
+has no lock-aware wrapper). `ddl_utils.add_foreign_key` resolves only the altered (referencing) table's lock settings,
+although `ADD FOREIGN KEY` also takes
 `SHARE ROW EXCLUSIVE` on the referenced table; an override for the referenced
 table is not honoured. The two `*_using_index` helpers attach a pre-built
 unique index (`CREATE UNIQUE INDEX CONCURRENTLY`), which is metadata-only when
@@ -656,7 +736,9 @@ RETURNS void
 `SECURITY INVOKER`. Adds a foreign key as `NOT VALID` (no scan; takes `SHARE
 ROW EXCLUSIVE` on both tables). The two column arrays must be non-empty and of
 equal length; blank names are rejected with `22023`.
+
 ###
+
 `ddl_utils_lib.foreign_key_definition_matches(i_schema_name, i_table_name, i_constraint_name, i_referenced_schema_name, i_referenced_table_name, i_column_names, i_referenced_column_names)`
 
 ```sql

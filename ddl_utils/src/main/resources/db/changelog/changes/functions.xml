@@ -9,14 +9,14 @@
          has no createFunction change type). runOnChange re-applies only the
          changeset whose body changed, and each one carries its own rollback.
 
-         CREATE OR REPLACE only replaces a routine with an identical signature:
-         changing RETURNS or the parameter names aborts the deploy, and changing
-         a parameter type silently leaves the old overload behind. When a
-         signature changes, add an explicit
-         `DROP FUNCTION IF EXISTS <old signature>;` (for example another sqlFile
-         in that routine's changeset) so the deprecated signature is removed.
-         RoutineSignatureTest fails the build if a routine name ends up with
-         more than one signature unless the overload is explicitly allow-listed.
+         Nothing is deployed yet, so a signature change is made in place: edit
+         the routine file and let CREATE OR REPLACE define the one current
+         signature. Do not add `DROP FUNCTION IF EXISTS <old signature>` guards
+         or compatibility changesets; a fresh database defines only the new
+         signature. Update the paired rollback in the same change, because it
+         drops the current signature. RoutineSignatureTest fails the build if a
+         routine name ends up with more than one signature unless the overload is
+         explicitly allow-listed.
 
          The order of the changesets is not significant (PL/pgSQL resolves called
          routines at first execution); most pairs list the lib helper before the

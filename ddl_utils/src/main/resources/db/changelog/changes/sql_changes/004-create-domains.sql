@@ -12,7 +12,7 @@ CREATE DOMAIN ddl_utils.non_null_text AS text
         );
 
 COMMENT ON DOMAIN ddl_utils.non_null_text IS
-    'text that is NOT NULL and not blank.';
+    'text that is NOT NULL, not empty, and not ASCII-whitespace-only.';
 
 -- A SQL clause prefix may be empty (no prefix), but it must not be NULL: format()
 -- is strict and would turn the whole generated fragment into NULL.
@@ -38,14 +38,17 @@ COMMENT ON DOMAIN ddl_utils.non_empty_text_array IS
     'text array with at least one element; elements may be NULL.';
 
 -- array_position is undefined for multidimensional arrays (it raises rather
--- than returning a result), so require a one-dimensional array first; the AND
--- short-circuits, so array_position is never evaluated for a multidimension.
+-- than returning a result), so check the shape first. PostgreSQL does not
+-- guarantee boolean evaluation order, so the CASE makes the order explicit and
+-- array_position is only evaluated for a one-dimensional, non-empty array.
 CREATE DOMAIN ddl_utils.non_empty_non_null_text_array AS text[]
     CONSTRAINT non_empty_non_null_text_array_check CHECK (
-        value IS NOT NULL
-            AND pg_catalog.cardinality(value) >= 1
-            AND pg_catalog.array_ndims(value) = 1
-            AND pg_catalog.array_position(value, NULL) IS NULL
+        CASE
+            WHEN value IS NULL THEN FALSE
+            WHEN pg_catalog.cardinality(value) < 1 THEN FALSE
+            WHEN pg_catalog.array_ndims(value) IS DISTINCT FROM 1 THEN FALSE
+            ELSE pg_catalog.array_position(value, NULL) IS NULL
+            END
         );
 
 COMMENT ON DOMAIN ddl_utils.non_empty_non_null_text_array IS
@@ -53,10 +56,12 @@ COMMENT ON DOMAIN ddl_utils.non_empty_non_null_text_array IS
 
 CREATE DOMAIN ddl_utils.non_empty_non_null_boolean_array AS boolean[]
     CONSTRAINT non_empty_non_null_boolean_array_check CHECK (
-        value IS NOT NULL
-            AND pg_catalog.cardinality(value) >= 1
-            AND pg_catalog.array_ndims(value) = 1
-            AND pg_catalog.array_position(value, NULL) IS NULL
+        CASE
+            WHEN value IS NULL THEN FALSE
+            WHEN pg_catalog.cardinality(value) < 1 THEN FALSE
+            WHEN pg_catalog.array_ndims(value) IS DISTINCT FROM 1 THEN FALSE
+            ELSE pg_catalog.array_position(value, NULL) IS NULL
+            END
         );
 
 COMMENT ON DOMAIN ddl_utils.non_empty_non_null_boolean_array IS

@@ -18,6 +18,17 @@ GRANT USAGE ON DOMAIN ddl_utils.non_null_boolean TO ddl_utils_caller;
 GRANT USAGE ON DOMAIN ddl_utils.non_empty_text_array TO ddl_utils_caller;
 GRANT USAGE ON DOMAIN ddl_utils.non_empty_non_null_text_array TO ddl_utils_caller;
 GRANT USAGE ON DOMAIN ddl_utils.non_empty_non_null_boolean_array TO ddl_utils_caller;
+REVOKE USAGE ON DOMAIN ddl_utils.non_negative_integer FROM public;
+REVOKE USAGE ON DOMAIN ddl_utils.non_null_text FROM public;
+REVOKE USAGE ON DOMAIN ddl_utils.sql_prefix FROM public;
+REVOKE USAGE ON DOMAIN ddl_utils.non_null_boolean FROM public;
+REVOKE USAGE ON DOMAIN ddl_utils.non_empty_text_array FROM public;
+REVOKE USAGE ON DOMAIN ddl_utils.non_empty_non_null_text_array FROM public;
+REVOKE USAGE ON DOMAIN ddl_utils.non_empty_non_null_boolean_array FROM public;
+
+-- The composite type returned by get_lock_settings is a caller-visible type too.
+GRANT USAGE ON TYPE ddl_utils.lock_settings TO ddl_utils_caller;
+REVOKE USAGE ON TYPE ddl_utils.lock_settings FROM public;
 
 -- Functions grant EXECUTE to PUBLIC by default. Make the invariant structural
 -- for routines created later by the migration role: ALTER DEFAULT PRIVILEGES
@@ -31,6 +42,7 @@ GRANT USAGE ON DOMAIN ddl_utils.non_empty_non_null_boolean_array TO ddl_utils_ca
 -- (see the ALTER DEFAULT PRIVILEGES documentation). The migration role is
 -- dedicated to this changelog, so the wider scope is intended.
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON ROUTINES FROM public;
+ALTER DEFAULT PRIVILEGES REVOKE USAGE ON TYPES FROM public;
 
 -- Revoke the default PUBLIC EXECUTE from each existing routine and grant only
 -- to the caller role, so execution is explicit.

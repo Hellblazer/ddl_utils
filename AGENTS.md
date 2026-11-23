@@ -90,6 +90,11 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   with `contents` and `pull-requests` write); the default `GITHUB_TOKEN` is not
   used because GitHub suppresses workflow runs for events it creates, which
   would leave the PR without the required checks.
+- The previous-release upgrade test is `LiquibaseUpgradeTest` today. It is
+  disabled with `@Disabled` only while the living-changelog baseline is reworked (epic `lv-ahk`); it is renamed to
+  `BaselineUpgradeTest` and re-enabled after a
+  normal release from `main` provides the new baseline. Do not delete the shared
+  upgrade support or the `upgrade.current.version` property during that window.
 - A release is a `v<version>` tag pushed to `main`. The `Release` workflow (`.github/workflows/release.yml`) derives the
   version from the tag (`-Drevision=${tag#v}`), runs the full `verify` gate, deploys to GitHub
   Packages, then creates the GitHub Release. Do not tag a commit that CI has
@@ -190,10 +195,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   Liquibase has no `createFunction` change type, so functions use
   `createProcedure` too; the `path` attribute keeps SQL out of the XML.
 - `CREATE OR REPLACE` only replaces a routine with an identical signature.
-  Changing `RETURNS` or a parameter name aborts the deploy, and changing a
-  parameter type leaves the old overload behind. When a signature changes, add
-  an explicit `DROP FUNCTION IF EXISTS <old signature>;` (for example another
-  `sqlFile` in the same changeset) so the deprecated signature is removed.
+  Nothing is deployed yet, so a signature change is made in place: edit the
+  routine file and let `CREATE OR REPLACE` define the one current signature. Do
+  not add `DROP FUNCTION IF EXISTS <old signature>;` guards or compatibility
+  changesets — a fresh database (and every test and CI database) defines only
+  the new signature. Update the paired rollback in the same change, because it
+  drops the current signature. `RoutineSignatureTest` fails the build if a
+  routine name ends up with more than one signature unless the overload is
+  explicitly allow-listed.
 - Type routine arguments with the `ddl_utils` domains (for example
   `non_null_text`, `non_negative_integer`) so null or invalid inputs fail
   fast with a check-constraint violation.
@@ -253,6 +262,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   build); skip with `-Dskip.liquibase-linter`. A separate `Changelog linter`
   workflow uploads the same run as SARIF to GitHub code scanning; `verify`
   remains the gate.
+- The hygiene rules are on by default: a routine changeset must set
+  `runOnChange`, a `CREATE TRIGGER` must be `CREATE OR REPLACE TRIGGER`
+  (PostgreSQL 14+), a changeset needs a non-blank author, a numbered changeset's
+  file paths must match its id, an id/author/file identity must be unique, a
+  routine body must not use `SELECT *` or transaction control, and routine
+  parameters/locals use the `i_`/`o_`/`io_`/`l_` prefixes. The two opt-in
+  production-safety rules are enabled in `.liquibase-linter.yml`:
+  `require-not-valid-constraint` and `require-if-exists-on-drop`.
 
 ## jOOQ
 
@@ -277,15 +294,28 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   database cloned with `CREATE DATABASE ... TEMPLATE ...` (fast, isolated
   data). Use the inherited `dsl` (jOOQ); do not run Liquibase or start
   containers in individual tests.
-- The container configuration is the single `PostgresTestBase.CONFIGURATION`
-  value, which also carries the extension installer. Return it from
-  `configuration()` in the base, the contract tests and `LiquibaseUpgradeTest`
-  instead of overriding the individual accessors.
+- The project values are the single `PostgresTestBase.PROFILE` (`ProjectProfile`)
+  value: the container/changelog `CONFIGURATION`, the managed/application/
+  routine schemas, the caller role, the rollback directories and the round-trip
+  schemas/baseline changelogs. Return it from `projectProfile()` in the base,
+  every contract subclass and the upgrade test (`LiquibaseUpgradeTest` today,
+  re-enabled as `BaselineUpgradeTest` after the baseline release) instead of
+  overriding the individual accessors. A contract subclass that needs the
+  container must override `projectProfile()`; the library defaults do not know
+  the project's roles or image.
 - A test whose shape already exists as a contract inherits it rather than
   copying the body: `ChangelogLinterContract`, `ChangelogNamingContract`,
-  `ChangelogSqlFilesContract`, `TrackingTablesContract`,
-  `PlpgsqlCheckContract`, `RollbackSignatureContract`, `UpgradeContract`.
-  Supply only the project schemas and the configuration.
+  `ChangelogSqlFilesContract`, `ChangelogLayoutContract`, `TrackingTablesContract`,
+  `CommentContract`, `AuditColumnsContract`, `PlpgsqlCheckContract`,
+  `RollbackSignatureContract`, `RoutineSignatureContract`,
+  `RoutineDocumentationContract`, `PrivilegeContract`, `RoutineSecurityContract`,
+  `ChangelogRoundTripContract`, `ChangelogReapplyContract` and `UpgradeContract`.
+  Supply only the project profile and the project-specific allow-lists (for
+  example `allowedSecurityDefiners()` or `applicationTypes()`).
+- `ChangelogRoundTripContract` and `ChangelogReapplyContract` are live
+  Testcontainers tests: they create a scratch database per contract class, apply
+  the changelog, roll it back or re-apply it, and compare the catalog. They run
+  in `verify`, not in the per-change unit-test loop.
 - Read classpath SQL through `TestResources` (one resource, or every `.sql`
   file in a directory) instead of re-implementing the stream handling.
 - Every test class and test method must have Javadoc describing the behavior
