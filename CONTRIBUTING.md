@@ -121,6 +121,12 @@ Rules:
 - Database tests extend `PostgresTestBase`, which shares one container and
   clones a template database per test class. Use the inherited `dsl`; do not
   start containers or run Liquibase inside individual tests.
+- Prefer the shared contracts from `liquibase-validation` (layout, comments,
+  audit columns, routine signatures/documentation, privileges, routine security,
+  tracking tables, round trip and re-apply) over copying their assertions. A
+  contract subclass returns the one `PostgresTestBase.PROFILE` value, so the
+  roles, image, schemas and changelog cannot drift. The round-trip and re-apply
+  contracts are live Testcontainers tests and run in `verify`.
 - Every test class and test method needs Javadoc describing the behavior it
   verifies.
 - Add a regression test when fixing a bug.

@@ -11,30 +11,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Guards that the routine tooling covers stored procedures, not just functions:
- * the {@code ensure_*} procedures exist as procedures, and {@code plpgsql_check}
- * reports findings for a deliberately broken procedure (so a future broken
- * procedure cannot slip through the analyser).
+ * {@code plpgsql_check} reports findings for a deliberately broken procedure, so
+ * a future broken procedure cannot slip through the analyser. The procedure-kind
+ * check itself is part of {@link RoutineSecurityTest}, which declares the
+ * expected procedures in the shared contract.
  */
 class ProcedureCoverageTest extends PostgresTestBase {
-
-    /**
-     * The multi-step routines are procedures ({@code prokind = 'p'}), which is
-     * what lets them COMMIT between ALTER TABLE steps.
-     */
-    @Test
-    void multiStepRoutinesAreProcedures() {
-        List<String> procedures = dsl.fetch("""
-                        SELECT proname
-                        FROM pg_proc
-                        WHERE pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = ?)
-                            AND prokind = 'p'
-                        """, DDL_UTILS_SCHEMA)
-                .getValues(0, String.class);
-
-        assertTrue(procedures.containsAll(
-                        List.of("ensure_not_null", "ensure_check_constraint", "ensure_foreign_key")),
-                () -> "procedures not found in " + DDL_UTILS_SCHEMA + "; found: " + procedures);
-    }
 
     /**
      * {@code plpgsql_check} reports findings for a broken procedure, proving the

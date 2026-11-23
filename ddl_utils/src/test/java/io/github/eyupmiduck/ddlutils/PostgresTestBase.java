@@ -1,6 +1,7 @@
 package io.github.eyupmiduck.ddlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.ChangelogTestSupport;
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.junit.jupiter.api.AfterEach;
@@ -103,6 +104,19 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             PostgresTestBase::installProjectExtensions);
 
     /**
+     * The one project profile, shared by this base and every contract so a
+     * schema, role or directory rename cannot drift between them.
+     */
+    static final ProjectProfile PROFILE = ProjectProfile.builder(CONFIGURATION)
+            .managedSchemas(DDL_UTILS_SCHEMA, DDL_UTILS_LIB_SCHEMA)
+            .routineSchemas(ROUTINE_SCHEMAS)
+            .callerRole(DDL_UTILS_CALLER)
+            .routineRollbackDirectories(ROUTINE_ROLLBACK_DIRECTORIES)
+            .triggerRollbackDirectories("db/changelog/changes/triggers-rollback")
+            .roundTripSchemas(DDL_UTILS_SCHEMA, DDL_UTILS_LIB_SCHEMA)
+            .build();
+
+    /**
      * Asserts that a lock-settings row holds the expected values.
      *
      * @param row               the settings row
@@ -167,8 +181,8 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     @Override
-    protected Configuration configuration() {
-        return CONFIGURATION;
+    protected ProjectProfile projectProfile() {
+        return PROFILE;
     }
 
     /**

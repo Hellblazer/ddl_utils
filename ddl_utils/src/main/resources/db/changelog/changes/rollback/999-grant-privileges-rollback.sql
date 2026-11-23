@@ -478,15 +478,58 @@ GRANT EXECUTE ON FUNCTION ddl_utils_lib.alter_table(
     ddl_utils.non_negative_integer
     ) TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.non_empty_non_null_boolean_array FROM ddl_utils_caller;
+GRANT USAGE ON DOMAIN ddl_utils.non_empty_non_null_boolean_array TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.non_empty_non_null_text_array FROM ddl_utils_caller;
+GRANT USAGE ON DOMAIN ddl_utils.non_empty_non_null_text_array TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.non_empty_text_array FROM ddl_utils_caller;
+GRANT USAGE ON DOMAIN ddl_utils.non_empty_text_array TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.non_null_boolean FROM ddl_utils_caller;
+GRANT USAGE ON DOMAIN ddl_utils.non_null_boolean TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.sql_prefix FROM ddl_utils_caller;
+GRANT USAGE ON DOMAIN ddl_utils.sql_prefix TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.non_null_text FROM ddl_utils_caller;
+GRANT USAGE ON DOMAIN ddl_utils.non_null_text TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.non_negative_integer FROM ddl_utils_caller;
+GRANT USAGE ON DOMAIN ddl_utils.non_negative_integer TO public;
+
+-- Composite type used by get_lock_settings.
+REVOKE USAGE ON TYPE ddl_utils.lock_settings FROM ddl_utils_caller;
+GRANT USAGE ON TYPE ddl_utils.lock_settings TO public;
 REVOKE SELECT ON ddl_utils.table_lock_settings FROM ddl_utils_caller;
 REVOKE SELECT ON ddl_utils.schema_lock_settings FROM ddl_utils_caller;
 REVOKE SELECT ON ddl_utils.database_lock_settings FROM ddl_utils_caller;
+-- Functions whose caller grant was added after the first rollback.
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.has_unquoted_token(
+    text,
+    ddl_utils.non_empty_non_null_text_array,
+    ddl_utils.non_null_boolean
+    ) FROM ddl_utils_caller;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.has_unquoted_token(
+    text,
+    ddl_utils.non_empty_non_null_text_array,
+    ddl_utils.non_null_boolean
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.assert_identifier_length(
+    text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) FROM ddl_utils_caller;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.assert_identifier_length(
+    text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION ddl_utils.move_table_lock_settings(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) FROM ddl_utils_caller;
+GRANT EXECUTE ON FUNCTION ddl_utils.move_table_lock_settings(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) TO public;
+
 REVOKE USAGE ON SCHEMA ddl_utils_lib FROM ddl_utils_caller;
 REVOKE USAGE ON SCHEMA ddl_utils FROM ddl_utils_caller;
 REVOKE EXECUTE ON FUNCTION ddl_utils.rename_table(

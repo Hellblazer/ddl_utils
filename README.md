@@ -380,8 +380,21 @@ The previous-release upgrade test (`LiquibaseUpgradeTest`) is disabled with
 release from `main` provides the new baseline.
 `PlpgsqlCheckTest` also runs `plpgsql_check` over every routine and fails on any
 finding not accepted in `plpgsql-check-whitelist.yml`, using the shared
-`PlpgsqlCheck` helper from `liquibase-validation`. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
+`PlpgsqlCheck` helper from `liquibase-validation`. The container tests inherit
+the shared contracts from `liquibase-validation` (layout, comments, audit
+columns, routine signatures/documentation, privileges, routine security,
+tracking tables, round trip and re-apply) and read the one
+`PostgresTestBase.PROFILE` value, so the schemas, roles, image, changelog and
+rollback directories cannot drift between them. `ChangelogRoundTripTest` applies
+the changelog, rolls it back, checks the catalog and re-applies;
+`ChangelogReapplyTest` applies it twice and requires the second run to be a
+no-op. Both are live Testcontainers tests and belong in `verify`, not the
+per-change unit loop. The hygiene rules (routine `runOnChange`, `CREATE OR
+REPLACE TRIGGER`, author/file/id conventions, body `SELECT *`/transaction
+control, argument naming) are on by default; the opt-in
+`require-not-valid-constraint` and `require-if-exists-on-drop` rules are enabled
+in `.liquibase-linter.yml`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full
+workflow.
 
 ## Local development database
 

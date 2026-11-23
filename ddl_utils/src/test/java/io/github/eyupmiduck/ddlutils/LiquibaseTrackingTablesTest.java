@@ -1,36 +1,25 @@
 package io.github.eyupmiduck.ddlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.TrackingTablesContract;
-
-import java.util.Collection;
-import java.util.List;
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 
 /**
  * Verifies that Liquibase keeps its tracking tables out of the application
  * schemas: they live in the dedicated {@code liquibase} schema, prefixed with
  * {@code ddl_utils_}, rather than as the generic {@code databasechangelog} /
  * {@code databasechangeloglock} tables. Inherits the shared
- * {@link TrackingTablesContract}.
+ * {@link TrackingTablesContract}; the schemas come from the project profile.
  */
 class LiquibaseTrackingTablesTest extends TrackingTablesContract {
 
     /**
-     * The ddl_utils container and changelog configuration.
+     * The ddl_utils profile, so this contract uses the project's roles, image,
+     * changelog and schemas rather than the library defaults.
      *
-     * @return the configuration
+     * @return the ddl_utils profile
      */
     @Override
-    protected Configuration configuration() {
-        return PostgresTestBase.CONFIGURATION;
-    }
-
-    /**
-     * The schemas that must not hold Liquibase's generic tracking-table names.
-     *
-     * @return the application schemas
-     */
-    @Override
-    protected Collection<String> applicationSchemas() {
-        return List.of(PUBLIC_SCHEMA, PostgresTestBase.DDL_UTILS_SCHEMA, PostgresTestBase.DDL_UTILS_LIB_SCHEMA);
+    protected ProjectProfile projectProfile() {
+        return PostgresTestBase.PROFILE;
     }
 }
