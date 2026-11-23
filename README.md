@@ -381,9 +381,9 @@ re-enable it after the replacement release.
 `PlpgsqlCheckTest` also runs `plpgsql_check` over every routine and fails on any
 finding not accepted in `plpgsql-check-whitelist.yml`, using the shared
 `PlpgsqlCheck` helper from `liquibase-validation`. The container tests inherit
-the shared contracts from `liquibase-validation` (layout, comments, audit
-columns, routine signatures/documentation, privileges, routine security,
-tracking tables, round trip and re-apply) and read the one
+the shared contracts from `liquibase-validation` (layout, routine files,
+comments, audit columns, routine signatures/documentation, privileges, routine
+security, tracking tables, round trip and re-apply) and read the one
 `PostgresTestBase.PROFILE` value, so the schemas, roles, image, changelog and
 rollback directories cannot drift between them. `ChangelogRoundTripTest` applies
 the changelog, rolls it back, checks the catalog and re-applies;
