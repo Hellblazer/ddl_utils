@@ -1,30 +1,36 @@
 package io.github.eyupmiduck.ddlutils;
 
-import io.github.eyupmiduck.changelogvalidator.testing.ExtensionAssertions;
-import org.junit.jupiter.api.Test;
+import io.github.eyupmiduck.changelogvalidator.testing.ExtensionContract;
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 
-import java.sql.Connection;
 import java.util.List;
 
 /**
  * Verifies that the extension compiled into the custom image is available to
  * install and installed in every test database: {@code plpgsql_check}, which the
- * routine analyser uses. Delegates to the shared {@link ExtensionAssertions}.
+ * routine analyser uses. The shared {@link ExtensionContract} performs the
+ * checks.
  */
-class PostgresExtensionsTest extends PostgresTestBase {
-
-    private static final List<String> EXTENSIONS = List.of("plpgsql_check");
+class PostgresExtensionsTest extends ExtensionContract {
 
     /**
-     * The extension is both available and installed.
+     * The extension the image provides.
      *
-     * @throws Exception if the catalog cannot be read
+     * @return the extension names
      */
-    @Test
-    void extensionsAreAvailableAndInstalled() throws Exception {
-        try (Connection connection = openTestConnection()) {
-            ExtensionAssertions.assertExtensionsAvailable(connection, EXTENSIONS);
-            ExtensionAssertions.assertExtensionsInstalled(connection, EXTENSIONS);
-        }
+    @Override
+    protected List<String> extensions() {
+        return List.of("plpgsql_check");
+    }
+
+    /**
+     * The ddl_utils profile, so the contract reads the same container and
+     * changelog as the other tests.
+     *
+     * @return the ddl_utils profile
+     */
+    @Override
+    protected ProjectProfile projectProfile() {
+        return PostgresTestBase.PROFILE;
     }
 }
