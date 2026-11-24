@@ -1,7 +1,10 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils.Routines;
 import org.jooq.Record;
+import org.jooq.SQLDialect;
 import org.jooq.exception.DataAccessException;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -165,22 +168,22 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
             CyclicBarrier barrier = new CyclicBarrier(callers);
             List<Callable<Void>> tasks = new ArrayList<>();
             tasks.add(() -> {
-                try (Connection connection = openWorkerConnection();
-                     Statement statement = connection.createStatement()) {
+                try (Connection connection = openWorkerConnection()) {
                     barrier.await(10, TimeUnit.SECONDS);
-                    statement.execute("CALL ddl_utils.ensure_foreign_key('" + PUBLIC_SCHEMA + "', '"
-                            + TARGET + "', 'fk_forward', ARRAY['parent_id'], '"
-                            + PUBLIC_SCHEMA + "', '" + REFERENCED + "', ARRAY['id'])");
+                    Routines.ensureForeignKey(
+                            DSL.using(connection, SQLDialect.POSTGRES).configuration(),
+                            PUBLIC_SCHEMA, TARGET, "fk_forward", new String[]{"parent_id"},
+                            PUBLIC_SCHEMA, REFERENCED, new String[]{"id"});
                 }
                 return null;
             });
             tasks.add(() -> {
-                try (Connection connection = openWorkerConnection();
-                     Statement statement = connection.createStatement()) {
+                try (Connection connection = openWorkerConnection()) {
                     barrier.await(10, TimeUnit.SECONDS);
-                    statement.execute("CALL ddl_utils.ensure_foreign_key('" + PUBLIC_SCHEMA + "', '"
-                            + REFERENCED + "', 'fk_reverse', ARRAY['target_id'], '"
-                            + PUBLIC_SCHEMA + "', '" + TARGET + "', ARRAY['id'])");
+                    Routines.ensureForeignKey(
+                            DSL.using(connection, SQLDialect.POSTGRES).configuration(),
+                            PUBLIC_SCHEMA, REFERENCED, "fk_reverse", new String[]{"target_id"},
+                            PUBLIC_SCHEMA, TARGET, new String[]{"id"});
                 }
                 return null;
             });
@@ -255,7 +258,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
 
         assertEquals("{2,1}", foreignKeyRow("fk_parent").get("referenced_key", String.class));
 
-        dsl.execute("CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+        Routines.ensureForeignKey(dsl.configuration(),
                 PUBLIC_SCHEMA, TARGET, "fk_parent",
                 new String[]{"parent_id", "id"}, PUBLIC_SCHEMA, REFERENCED, new String[]{"id", "code"});
 
@@ -269,7 +272,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
      */
     @Test
     void rejectsMismatchedColumnListLengths() {
-        assertSqlState("22023", () -> dsl.execute("CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+        assertSqlState("22023", () -> Routines.ensureForeignKey(dsl.configuration(),
                 PUBLIC_SCHEMA, TARGET, "fk_parent", new String[]{"parent_id", "id"},
                 PUBLIC_SCHEMA, REFERENCED, new String[]{"id"}));
     }
@@ -280,7 +283,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
      */
     @Test
     void rejectsDuplicateColumnNames() {
-        assertSqlState("22023", () -> dsl.execute("CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+        assertSqlState("22023", () -> Routines.ensureForeignKey(dsl.configuration(),
                 PUBLIC_SCHEMA, TARGET, "fk_parent",
                 new String[]{"parent_id", "parent_id"}, PUBLIC_SCHEMA, REFERENCED,
                 new String[]{"id", "id"}));
@@ -363,13 +366,11 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
     void rejectsNonTableSourceAndReferencedRelations() {
         dsl.execute("CREATE VIEW " + PUBLIC_SCHEMA + ".ensure_foreign_key_view AS SELECT 1 AS id");
         try {
-            assertSqlState("42809", () -> dsl.execute(
-                    "CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+            assertSqlState("42809", () -> Routines.ensureForeignKey(dsl.configuration(),
                     PUBLIC_SCHEMA, "ensure_foreign_key_view", "fk_view", new String[]{"id"},
                     PUBLIC_SCHEMA, REFERENCED, new String[]{"id"}));
 
-            assertSqlState("42809", () -> dsl.execute(
-                    "CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+            assertSqlState("42809", () -> Routines.ensureForeignKey(dsl.configuration(),
                     PUBLIC_SCHEMA, TARGET, "fk_view", new String[]{"parent_id"},
                     PUBLIC_SCHEMA, "ensure_foreign_key_view", new String[]{"id"}));
         } finally {
@@ -405,7 +406,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
                 + " ADD CONSTRAINT fk_parent FOREIGN KEY (parent_id) REFERENCES "
                 + PUBLIC_SCHEMA + "." + REFERENCED + " (id)");
 
-        assertSqlState("42703", () -> dsl.execute("CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+        assertSqlState("42703", () -> Routines.ensureForeignKey(dsl.configuration(),
                 PUBLIC_SCHEMA, TARGET, "fk_parent", new String[]{"missing"}, PUBLIC_SCHEMA, REFERENCED,
                 new String[]{"id"}));
     }
@@ -420,7 +421,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
                 + " ADD CONSTRAINT fk_parent FOREIGN KEY (parent_id) REFERENCES "
                 + PUBLIC_SCHEMA + "." + REFERENCED + " (id)");
 
-        assertSqlState("42703", () -> dsl.execute("CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+        assertSqlState("42703", () -> Routines.ensureForeignKey(dsl.configuration(),
                 PUBLIC_SCHEMA, TARGET, "fk_parent", new String[]{"parent_id"}, PUBLIC_SCHEMA, REFERENCED,
                 new String[]{"missing"}));
     }
@@ -430,7 +431,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
      */
     @Test
     void rejectsUnknownReferencedTable() {
-        assertSqlState("42P01", () -> dsl.execute("CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+        assertSqlState("42P01", () -> Routines.ensureForeignKey(dsl.configuration(),
                 PUBLIC_SCHEMA, TARGET, "fk_parent", new String[]{"parent_id"}, PUBLIC_SCHEMA, "no_such_table",
                 new String[]{"id"}));
     }
@@ -441,10 +442,10 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
      */
     @Test
     void rejectsMissingSourceTable() {
-        DataAccessException failure = assertThrows(DataAccessException.class, () -> dsl.execute(
-                "CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
-                PUBLIC_SCHEMA, "ensure_foreign_key_missing", "fk_missing",
-                new String[]{"parent_id"}, PUBLIC_SCHEMA, REFERENCED, new String[]{"id"}));
+        DataAccessException failure = assertThrows(DataAccessException.class,
+                () -> Routines.ensureForeignKey(dsl.configuration(),
+                        PUBLIC_SCHEMA, "ensure_foreign_key_missing", "fk_missing",
+                        new String[]{"parent_id"}, PUBLIC_SCHEMA, REFERENCED, new String[]{"id"}));
 
         assertEquals("42P01", failure.sqlState());
         assertTrue(failure.getMessage().contains("ensure_foreign_key: table"),
@@ -460,8 +461,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
         String noKey = "ensure_foreign_key_no_key";
         createTestTable(noKey, "id int");
         try {
-            assertSqlState("42830", () -> dsl.execute(
-                    "CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+            assertSqlState("42830", () -> Routines.ensureForeignKey(dsl.configuration(),
                     PUBLIC_SCHEMA, TARGET, "fk_no_key", new String[]{"parent_id"},
                     PUBLIC_SCHEMA, noKey, new String[]{"id"}));
             assertFalse(constraintExists(PUBLIC_SCHEMA, TARGET, "fk_no_key"));
@@ -547,7 +547,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
     }
 
     private void callEnsureForeignKey(String name) {
-        dsl.execute("CALL ddl_utils.ensure_foreign_key(?, ?, ?, ?, ?, ?, ?)",
+        Routines.ensureForeignKey(dsl.configuration(),
                 PUBLIC_SCHEMA, TARGET, name,
                 new String[]{"parent_id"}, PUBLIC_SCHEMA, REFERENCED, new String[]{"id"});
     }

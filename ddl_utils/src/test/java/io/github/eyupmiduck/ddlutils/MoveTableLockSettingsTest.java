@@ -1,6 +1,8 @@
 package io.github.eyupmiduck.ddlutils;
 
 import org.jooq.Record;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -8,9 +10,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.TableLockSettings.TABLE_LOCK_SETTINGS;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -170,17 +174,14 @@ class MoveTableLockSettingsTest extends PostgresTestBase {
      * only have SELECT on the settings table.
      */
     private void setCreatedAt(String tableName, String timestamp) throws SQLException {
-        try (Connection owner = openOwnerConnection();
-             PreparedStatement statement = owner.prepareStatement(
-                     """
-                             UPDATE ddl_utils.table_lock_settings
-                             SET created_at = ?::timestamptz
-                             WHERE schema_name = ? AND table_name = ?
-                             """)) {
-            statement.setString(1, timestamp);
-            statement.setString(2, PUBLIC_SCHEMA);
-            statement.setString(3, tableName);
-            statement.execute();
+        try (Connection owner = openOwnerConnection()) {
+            DSL.using(owner, SQLDialect.POSTGRES)
+                    .update(TABLE_LOCK_SETTINGS)
+                    .set(TABLE_LOCK_SETTINGS.CREATED_AT,
+                            DSL.field("{0}::timestamptz", OffsetDateTime.class, DSL.val(timestamp)))
+                    .where(TABLE_LOCK_SETTINGS.SCHEMA_NAME.eq(PUBLIC_SCHEMA))
+                    .and(TABLE_LOCK_SETTINGS.TABLE_NAME.eq(tableName))
+                    .execute();
         }
     }
 
@@ -189,13 +190,11 @@ class MoveTableLockSettingsTest extends PostgresTestBase {
      * operation did not rewrite the row.
      */
     private Object updatedAt(String tableName) {
-        Record row = dsl.fetchOne(
-                """
-                        SELECT updated_at
-                        FROM ddl_utils.table_lock_settings
-                        WHERE schema_name = ? AND table_name = ?
-                        """,
-                PUBLIC_SCHEMA, tableName);
+        Record row = dsl.select(TABLE_LOCK_SETTINGS.UPDATED_AT)
+                .from(TABLE_LOCK_SETTINGS)
+                .where(TABLE_LOCK_SETTINGS.SCHEMA_NAME.eq(PUBLIC_SCHEMA))
+                .and(TABLE_LOCK_SETTINGS.TABLE_NAME.eq(tableName))
+                .fetchOne();
         assertNotNull(row, () -> "no settings row for " + tableName);
         return row.get(0);
     }
@@ -206,12 +205,11 @@ class MoveTableLockSettingsTest extends PostgresTestBase {
      * the result.
      */
     private boolean createdAtIs(String tableName, String timestamp) {
-        return dsl.fetchOne(
-                """
-                        SELECT created_at = ?::timestamptz
-                        FROM ddl_utils.table_lock_settings
-                        WHERE schema_name = ? AND table_name = ?
-                        """,
-                timestamp, PUBLIC_SCHEMA, tableName).get(0, Boolean.class);
+        return dsl.select(TABLE_LOCK_SETTINGS.CREATED_AT.eq(
+                        DSL.field("{0}::timestamptz", OffsetDateTime.class, DSL.val(timestamp))))
+                .from(TABLE_LOCK_SETTINGS)
+                .where(TABLE_LOCK_SETTINGS.SCHEMA_NAME.eq(PUBLIC_SCHEMA))
+                .and(TABLE_LOCK_SETTINGS.TABLE_NAME.eq(tableName))
+                .fetchOne(0, Boolean.class);
     }
 }

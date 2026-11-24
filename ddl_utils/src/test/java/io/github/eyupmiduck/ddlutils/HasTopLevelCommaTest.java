@@ -1,5 +1,6 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils_lib.Routines;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -159,8 +160,7 @@ class HasTopLevelCommaTest extends PostgresTestBase {
     }
 
     private boolean hasTopLevelComma(String value) {
-        Boolean result = dsl.fetchOne("SELECT ddl_utils_lib.has_top_level_comma(?)", (Object) value)
-                .get(0, Boolean.class);
+        Boolean result = Routines.hasTopLevelComma(dsl.configuration(), value);
         assertNotNull(result, "has_top_level_comma must not return SQL NULL");
         return result;
     }

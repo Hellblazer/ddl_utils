@@ -4,6 +4,7 @@ import org.jooq.Record;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.TableLockSettings.TABLE_LOCK_SETTINGS;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -80,18 +81,23 @@ class TableLockSettingsTest extends PostgresTestBase {
     void callerCannotWriteTableLockSettings() {
         // Positive control: the caller can still read the table; the failures
         // below are about write privilege, not a total lack of access.
-        assertDoesNotThrow(() -> dsl.fetch("SELECT * FROM ddl_utils.table_lock_settings"));
+        assertDoesNotThrow(() -> dsl.fetch(TABLE_LOCK_SETTINGS));
 
-        assertSqlState("42501", () -> dsl.execute(
-                "UPDATE ddl_utils.table_lock_settings SET sleep_time = 1 WHERE schema_name = 'x'"));
-        assertSqlState("42501", () -> dsl.execute("""
-                INSERT INTO ddl_utils.table_lock_settings (
-                    schema_name, table_name, ddl_lock_timeout, sleep_time, statement_duration
-                )
-                VALUES ('x', 'y', 1, 1, 1)
-                """));
-        assertSqlState("42501", () -> dsl.execute(
-                "DELETE FROM ddl_utils.table_lock_settings WHERE schema_name = 'x'"));
+        assertSqlState("42501", () -> dsl.update(TABLE_LOCK_SETTINGS)
+                .set(TABLE_LOCK_SETTINGS.SLEEP_TIME, 1)
+                .where(TABLE_LOCK_SETTINGS.SCHEMA_NAME.eq("x"))
+                .execute());
+        assertSqlState("42501", () -> dsl.insertInto(TABLE_LOCK_SETTINGS,
+                        TABLE_LOCK_SETTINGS.SCHEMA_NAME,
+                        TABLE_LOCK_SETTINGS.TABLE_NAME,
+                        TABLE_LOCK_SETTINGS.DDL_LOCK_TIMEOUT,
+                        TABLE_LOCK_SETTINGS.SLEEP_TIME,
+                        TABLE_LOCK_SETTINGS.STATEMENT_DURATION)
+                .values("x", "y", 1, 1, 1)
+                .execute());
+        assertSqlState("42501", () -> dsl.deleteFrom(TABLE_LOCK_SETTINGS)
+                .where(TABLE_LOCK_SETTINGS.SCHEMA_NAME.eq("x"))
+                .execute());
     }
 
     /**

@@ -1,15 +1,18 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils.Routines;
 import org.jooq.Record;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.SchemaLockSettings.SCHEMA_LOCK_SETTINGS;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -105,14 +108,10 @@ class SchemaLockSettingsTest extends PostgresTestBase {
                 int offset = i;
                 futures.add(pool.submit(() -> {
                     barrier.await(10, TimeUnit.SECONDS);
-                    try (Connection connection = openTestConnection();
-                         PreparedStatement statement = connection.prepareStatement(
-                                 "SELECT ddl_utils.set_schema_lock_settings(?, ?, ?, ?)")) {
-                        statement.setString(1, SCHEMA);
-                        statement.setInt(2, 100 + offset);
-                        statement.setInt(3, 200 + offset);
-                        statement.setInt(4, 300 + offset);
-                        statement.execute();
+                    try (Connection connection = openTestConnection()) {
+                        Routines.setSchemaLockSettings(
+                                DSL.using(connection, SQLDialect.POSTGRES).configuration(),
+                                SCHEMA, 100 + offset, 200 + offset, 300 + offset);
                     }
                     return null;
                 }));
@@ -139,8 +138,10 @@ class SchemaLockSettingsTest extends PostgresTestBase {
     void callerCannotUpdateSchemaLockSettings() {
         setSchemaLockSettings(SCHEMA, 200, 300, 40);
 
-        assertSqlState("42501", () -> dsl.execute(
-                "UPDATE ddl_utils.schema_lock_settings SET sleep_time = 1 WHERE schema_name = ?", SCHEMA));
+        assertSqlState("42501", () -> dsl.update(SCHEMA_LOCK_SETTINGS)
+                .set(SCHEMA_LOCK_SETTINGS.SLEEP_TIME, 1)
+                .where(SCHEMA_LOCK_SETTINGS.SCHEMA_NAME.eq(SCHEMA))
+                .execute());
     }
 
     /**

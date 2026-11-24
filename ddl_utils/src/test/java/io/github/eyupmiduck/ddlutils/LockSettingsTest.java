@@ -1,12 +1,14 @@
 package io.github.eyupmiduck.ddlutils;
 
 import org.jooq.Record;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.*;
 
 import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
 
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.DatabaseLockSettings.DATABASE_LOCK_SETTINGS;
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.GetDatabaseLockSettings.GET_DATABASE_LOCK_SETTINGS;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -53,14 +55,20 @@ class LockSettingsTest extends PostgresTestBase {
     void callerCanSelectButNotWriteLockSettings() {
         assertNotNull(tableRow());
 
-        assertSqlState("42501",
-                () -> dsl.execute("UPDATE ddl_utils.database_lock_settings SET sleep_time = 1 WHERE id = 1"));
-        assertSqlState("42501", () -> dsl.execute("""
-                INSERT INTO ddl_utils.database_lock_settings (id, ddl_lock_timeout, sleep_time, statement_duration)
-                VALUES (1, 1, 1, 1)
-                """));
-        assertSqlState("42501",
-                () -> dsl.execute("DELETE FROM ddl_utils.database_lock_settings WHERE id = 1"));
+        assertSqlState("42501", () -> dsl.update(DATABASE_LOCK_SETTINGS)
+                .set(DATABASE_LOCK_SETTINGS.SLEEP_TIME, 1)
+                .where(DATABASE_LOCK_SETTINGS.ID.eq(1))
+                .execute());
+        assertSqlState("42501", () -> dsl.insertInto(DATABASE_LOCK_SETTINGS,
+                        DATABASE_LOCK_SETTINGS.ID,
+                        DATABASE_LOCK_SETTINGS.DDL_LOCK_TIMEOUT,
+                        DATABASE_LOCK_SETTINGS.SLEEP_TIME,
+                        DATABASE_LOCK_SETTINGS.STATEMENT_DURATION)
+                .values(1, 1, 1, 1)
+                .execute());
+        assertSqlState("42501", () -> dsl.deleteFrom(DATABASE_LOCK_SETTINGS)
+                .where(DATABASE_LOCK_SETTINGS.ID.eq(1))
+                .execute());
     }
 
     /**
@@ -70,24 +78,27 @@ class LockSettingsTest extends PostgresTestBase {
      */
     @Test
     void databaseLockSettingsIsSingleton() throws Exception {
-        assertEquals(1, dsl.fetchOne("SELECT count(*)::int FROM ddl_utils.database_lock_settings")
-                .get(0, Integer.class));
+        assertEquals(1, dsl.fetchCount(DATABASE_LOCK_SETTINGS));
 
         try {
-            try (Connection owner = openOwnerConnection();
-                 Statement statement = owner.createStatement()) {
-                SQLException failure = assertThrows(SQLException.class, () -> statement.execute("""
-                        INSERT INTO ddl_utils.database_lock_settings (id, ddl_lock_timeout, sleep_time, statement_duration)
-                        VALUES (2, 1, 1, 1)
-                        """));
-                assertEquals("23514", failure.getSQLState());
+            try (Connection owner = openOwnerConnection()) {
+                assertSqlState("23514", () -> DSL.using(owner, SQLDialect.POSTGRES)
+                        .insertInto(DATABASE_LOCK_SETTINGS,
+                                DATABASE_LOCK_SETTINGS.ID,
+                                DATABASE_LOCK_SETTINGS.DDL_LOCK_TIMEOUT,
+                                DATABASE_LOCK_SETTINGS.SLEEP_TIME,
+                                DATABASE_LOCK_SETTINGS.STATEMENT_DURATION)
+                        .values(2, 1, 1, 1)
+                        .execute());
             }
         } finally {
             // A regression that lets the insert succeed must not leave a second
             // row behind for the rest of the class.
-            try (Connection owner = openOwnerConnection();
-                 Statement statement = owner.createStatement()) {
-                statement.execute("DELETE FROM ddl_utils.database_lock_settings WHERE id = 2");
+            try (Connection owner = openOwnerConnection()) {
+                DSL.using(owner, SQLDialect.POSTGRES)
+                        .deleteFrom(DATABASE_LOCK_SETTINGS)
+                        .where(DATABASE_LOCK_SETTINGS.ID.eq(2))
+                        .execute();
             }
         }
     }
@@ -112,7 +123,7 @@ class LockSettingsTest extends PostgresTestBase {
         deleteDatabaseDefaults();
         try {
             assertSqlState("P0002",
-                    () -> dsl.fetch("SELECT * FROM ddl_utils.get_database_lock_settings()"));
+                    () -> dsl.selectFrom(GET_DATABASE_LOCK_SETTINGS.call()).fetch());
         } finally {
             restoreDatabaseDefaults(DEFAULT_DDL_LOCK_TIMEOUT, DEFAULT_SLEEP_TIME, DEFAULT_STATEMENT_DURATION);
         }
@@ -164,11 +175,12 @@ class LockSettingsTest extends PostgresTestBase {
     }
 
     private Record tableRow() {
-        return dsl.fetchOne("""
-                SELECT ddl_lock_timeout, sleep_time, statement_duration
-                FROM ddl_utils.database_lock_settings
-                WHERE id = 1
-                """);
+        return dsl.select(DATABASE_LOCK_SETTINGS.DDL_LOCK_TIMEOUT,
+                        DATABASE_LOCK_SETTINGS.SLEEP_TIME,
+                        DATABASE_LOCK_SETTINGS.STATEMENT_DURATION)
+                .from(DATABASE_LOCK_SETTINGS)
+                .where(DATABASE_LOCK_SETTINGS.ID.eq(1))
+                .fetchOne();
     }
 
 }

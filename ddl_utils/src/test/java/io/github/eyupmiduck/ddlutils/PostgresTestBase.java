@@ -2,17 +2,24 @@ package io.github.eyupmiduck.ddlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.ChangelogTestSupport;
 import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils.Routines;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collection;
 import java.util.List;
 
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.DatabaseLockSettings.DATABASE_LOCK_SETTINGS;
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.GetDatabaseLockSettings.GET_DATABASE_LOCK_SETTINGS;
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.GetLockSettings.GET_LOCK_SETTINGS;
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.GetSchemaLockSettings.GET_SCHEMA_LOCK_SETTINGS;
+import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.GetTableLockSettings.GET_TABLE_LOCK_SETTINGS;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -282,8 +289,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected void setTableLockSettings(String schema, String table, Integer lockTimeout,
                                         Integer sleepTime, Integer duration) {
-        dsl.fetchOne("SELECT ddl_utils.set_table_lock_settings(?, ?, ?, ?, ?)",
-                schema, table, lockTimeout, sleepTime, duration);
+        Routines.setTableLockSettings(dsl.configuration(), schema, table, lockTimeout, sleepTime, duration);
     }
 
     /**
@@ -293,7 +299,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @param table  the table name
      */
     protected void clearTableLockSettings(String schema, String table) {
-        dsl.fetchOne("SELECT ddl_utils.clear_table_lock_settings(?, ?)", schema, table);
+        Routines.clearTableLockSettings(dsl.configuration(), schema, table);
     }
 
     /**
@@ -304,12 +310,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the settings row, or {@code null}
      */
     protected Record getTableLockSettings(String schema, String table) {
-        return dsl.fetchOne(
-                """
-                        SELECT ddl_lock_timeout, sleep_time, statement_duration
-                        FROM ddl_utils.get_table_lock_settings(?, ?)
-                        """,
-                schema, table);
+        return dsl.selectFrom(GET_TABLE_LOCK_SETTINGS.call(schema, table)).fetchOne();
     }
 
     /**
@@ -322,8 +323,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected void setSchemaLockSettings(String schema, Integer lockTimeout,
                                          Integer sleepTime, Integer duration) {
-        dsl.fetchOne("SELECT ddl_utils.set_schema_lock_settings(?, ?, ?, ?)",
-                schema, lockTimeout, sleepTime, duration);
+        Routines.setSchemaLockSettings(dsl.configuration(), schema, lockTimeout, sleepTime, duration);
     }
 
     /**
@@ -332,7 +332,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @param schema the schema name
      */
     protected void clearSchemaLockSettings(String schema) {
-        dsl.fetchOne("SELECT ddl_utils.clear_schema_lock_settings(?)", schema);
+        Routines.clearSchemaLockSettings(dsl.configuration(), schema);
     }
 
     /**
@@ -342,12 +342,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the settings row, or {@code null}
      */
     protected Record getSchemaLockSettings(String schema) {
-        return dsl.fetchOne(
-                """
-                        SELECT ddl_lock_timeout, sleep_time, statement_duration
-                        FROM ddl_utils.get_schema_lock_settings(?)
-                        """,
-                schema);
+        return dsl.selectFrom(GET_SCHEMA_LOCK_SETTINGS.call(schema)).fetchOne();
     }
 
     /**
@@ -358,8 +353,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @param duration    the statement budget in ms
      */
     protected void setDatabaseLockSettings(Integer lockTimeout, Integer sleepTime, Integer duration) {
-        dsl.fetchOne("SELECT ddl_utils.set_database_lock_settings(?, ?, ?)",
-                lockTimeout, sleepTime, duration);
+        Routines.setDatabaseLockSettings(dsl.configuration(), lockTimeout, sleepTime, duration);
     }
 
     /**
@@ -368,11 +362,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the settings row
      */
     protected Record getDatabaseLockSettings() {
-        return dsl.fetchOne(
-                """
-                        SELECT ddl_lock_timeout, sleep_time, statement_duration
-                        FROM ddl_utils.get_database_lock_settings()
-                        """);
+        return dsl.selectFrom(GET_DATABASE_LOCK_SETTINGS.call()).fetchOne();
     }
 
     /**
@@ -386,21 +376,24 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
         // Read the table directly: ddl_utils.get_database_lock_settings() raises
         // P0002 when the row is missing, so it can never return an empty result
         // and the null guard below would be dead code.
-        Record row = dsl.fetchOne("""
-                SELECT ddl_lock_timeout, sleep_time, statement_duration
-                FROM ddl_utils.database_lock_settings
-                WHERE id = 1
-                """);
+        Record row = dsl.select(DATABASE_LOCK_SETTINGS.DDL_LOCK_TIMEOUT,
+                        DATABASE_LOCK_SETTINGS.SLEEP_TIME,
+                        DATABASE_LOCK_SETTINGS.STATEMENT_DURATION)
+                .from(DATABASE_LOCK_SETTINGS)
+                .where(DATABASE_LOCK_SETTINGS.ID.eq(1))
+                .fetchOne();
         if (row == null) {
             throw new IllegalStateException(
                     "the database defaults row is already missing; nothing was deleted");
         }
-        deletedDdlLockTimeout = row.get("ddl_lock_timeout", Integer.class);
-        deletedSleepTime = row.get("sleep_time", Integer.class);
-        deletedStatementDuration = row.get("statement_duration", Integer.class);
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("DELETE FROM ddl_utils.database_lock_settings WHERE id = 1");
+        deletedDdlLockTimeout = row.get(DATABASE_LOCK_SETTINGS.DDL_LOCK_TIMEOUT);
+        deletedSleepTime = row.get(DATABASE_LOCK_SETTINGS.SLEEP_TIME);
+        deletedStatementDuration = row.get(DATABASE_LOCK_SETTINGS.STATEMENT_DURATION);
+        try (Connection connection = openOwnerConnection()) {
+            DSL.using(connection, SQLDialect.POSTGRES)
+                    .deleteFrom(DATABASE_LOCK_SETTINGS)
+                    .where(DATABASE_LOCK_SETTINGS.ID.eq(1))
+                    .execute();
         } catch (SQLException e) {
             throw new IllegalStateException("failed to delete the database defaults", e);
         }
@@ -436,21 +429,20 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @param statementDuration the {@code statement_duration} to restore
      */
     protected void restoreDatabaseDefaults(int ddlLockTimeout, int sleepTime, int statementDuration) {
-        try (Connection connection = openOwnerConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     INSERT INTO ddl_utils.database_lock_settings (
-                         id, ddl_lock_timeout, sleep_time, statement_duration
-                     )
-                     VALUES (1, ?, ?, ?)
-                     ON CONFLICT (id) DO UPDATE
-                         SET ddl_lock_timeout   = EXCLUDED.ddl_lock_timeout,
-                             sleep_time         = EXCLUDED.sleep_time,
-                             statement_duration = EXCLUDED.statement_duration
-                     """)) {
-            statement.setInt(1, ddlLockTimeout);
-            statement.setInt(2, sleepTime);
-            statement.setInt(3, statementDuration);
-            statement.execute();
+        try (Connection connection = openOwnerConnection()) {
+            DSL.using(connection, SQLDialect.POSTGRES)
+                    .insertInto(DATABASE_LOCK_SETTINGS,
+                            DATABASE_LOCK_SETTINGS.ID,
+                            DATABASE_LOCK_SETTINGS.DDL_LOCK_TIMEOUT,
+                            DATABASE_LOCK_SETTINGS.SLEEP_TIME,
+                            DATABASE_LOCK_SETTINGS.STATEMENT_DURATION)
+                    .values(1, ddlLockTimeout, sleepTime, statementDuration)
+                    .onConflict(DATABASE_LOCK_SETTINGS.ID)
+                    .doUpdate()
+                    .set(DATABASE_LOCK_SETTINGS.DDL_LOCK_TIMEOUT, ddlLockTimeout)
+                    .set(DATABASE_LOCK_SETTINGS.SLEEP_TIME, sleepTime)
+                    .set(DATABASE_LOCK_SETTINGS.STATEMENT_DURATION, statementDuration)
+                    .execute();
         } catch (SQLException e) {
             throw new IllegalStateException("failed to restore the database defaults", e);
         }
@@ -465,11 +457,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the settings row
      */
     protected Record getLockSettings(String schema, String table) {
-        return dsl.fetchOne(
-                """
-                        SELECT ddl_lock_timeout, sleep_time, statement_duration
-                        FROM ddl_utils.get_lock_settings(?, ?)
-                        """,
-                schema, table);
+        return dsl.selectFrom(GET_LOCK_SETTINGS.call(schema, table)).fetchOne();
     }
 }
