@@ -1,5 +1,6 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils_lib.Routines;
 import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.Test;
 
@@ -37,8 +38,8 @@ class AssertIdentifierLengthTest extends PostgresTestBase {
      */
     @Test
     void acceptsNullValue() {
-        assertDoesNotThrow(() -> dsl.fetchOne(
-                "SELECT ddl_utils_lib.assert_identifier_length(NULL::text, ?, ?)", "ctx", "i_name"));
+        assertDoesNotThrow(() -> Routines.assertIdentifierLength(
+                dsl.configuration(), null, "ctx", "i_name"));
     }
 
     /**
@@ -69,6 +70,6 @@ class AssertIdentifierLengthTest extends PostgresTestBase {
     }
 
     private void assertIdentifierLength(String value, String context, String argument) {
-        dsl.fetchOne("SELECT ddl_utils_lib.assert_identifier_length(?, ?, ?)", value, context, argument);
+        Routines.assertIdentifierLength(dsl.configuration(), value, context, argument);
     }
 }

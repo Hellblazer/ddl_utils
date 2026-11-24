@@ -2,6 +2,7 @@ package io.github.eyupmiduck.ddlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.AuditColumnsContract;
 import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils.Routines;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 
@@ -35,10 +36,8 @@ class AuditColumnsTest extends AuditColumnsContract {
      */
     @BeforeEach
     void seedAuditFixtures() {
-        dsl.fetchOne("SELECT ddl_utils.set_schema_lock_settings(?, ?, ?, ?)",
-                PROBE_SCHEMA, 100, 1000, 30);
-        dsl.fetchOne("SELECT ddl_utils.set_table_lock_settings(?, ?, ?, ?, ?)",
-                PROBE_SCHEMA, PROBE_TABLE, 100, 1000, 30);
+        Routines.setSchemaLockSettings(dsl.configuration(), PROBE_SCHEMA, 100, 1000, 30);
+        Routines.setTableLockSettings(dsl.configuration(), PROBE_SCHEMA, PROBE_TABLE, 100, 1000, 30);
     }
 
     /**
@@ -50,12 +49,12 @@ class AuditColumnsTest extends AuditColumnsContract {
     void clearAuditFixtures() {
         RuntimeException failure = null;
         try {
-            dsl.fetchOne("SELECT ddl_utils.clear_table_lock_settings(?, ?)", PROBE_SCHEMA, PROBE_TABLE);
+            Routines.clearTableLockSettings(dsl.configuration(), PROBE_SCHEMA, PROBE_TABLE);
         } catch (RuntimeException e) {
             failure = e;
         }
         try {
-            dsl.fetchOne("SELECT ddl_utils.clear_schema_lock_settings(?)", PROBE_SCHEMA);
+            Routines.clearSchemaLockSettings(dsl.configuration(), PROBE_SCHEMA);
         } catch (RuntimeException e) {
             if (failure != null) {
                 failure.addSuppressed(e);

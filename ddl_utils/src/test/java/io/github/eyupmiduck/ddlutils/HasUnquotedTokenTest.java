@@ -1,5 +1,6 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils_lib.Routines;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -153,8 +154,6 @@ class HasUnquotedTokenTest extends PostgresTestBase {
     }
 
     private Boolean hasUnquotedToken(String value, String[] tokens, boolean topLevelOnly) {
-        return dsl.fetchOne("SELECT ddl_utils_lib.has_unquoted_token(?, ?, ?)",
-                        (Object) value, tokens, topLevelOnly)
-                .get(0, Boolean.class);
+        return Routines.hasUnquotedToken(dsl.configuration(), value, tokens, topLevelOnly);
     }
 }

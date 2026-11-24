@@ -1,9 +1,11 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils.Routines;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -136,14 +138,11 @@ class EnsureNotNullProcedureTest extends SingleTableTest {
         List<Callable<Void>> tasks = new ArrayList<>();
         for (int i = 0; i < callers; i++) {
             tasks.add(() -> {
-                try (Connection connection = openWorkerConnection();
-                     PreparedStatement statement = connection.prepareStatement(
-                             "CALL ddl_utils.ensure_not_null(?, ?, ?)")) {
-                    statement.setString(1, PUBLIC_SCHEMA);
-                    statement.setString(2, target());
-                    statement.setString(3, "note");
+                try (Connection connection = openWorkerConnection()) {
                     barrier.await(10, TimeUnit.SECONDS);
-                    statement.execute();
+                    Routines.ensureNotNull(
+                            DSL.using(connection, SQLDialect.POSTGRES).configuration(),
+                            PUBLIC_SCHEMA, target(), "note");
                 }
                 return null;
             });
@@ -288,8 +287,7 @@ class EnsureNotNullProcedureTest extends SingleTableTest {
     void rejectsNonTableRelation() {
         dsl.execute("CREATE VIEW " + PUBLIC_SCHEMA + ".ensure_not_null_view AS SELECT 1 AS note");
         try {
-            assertSqlState("42809", () -> dsl.execute(
-                    "CALL ddl_utils.ensure_not_null(?, ?, ?)",
+            assertSqlState("42809", () -> Routines.ensureNotNull(dsl.configuration(),
                     PUBLIC_SCHEMA, "ensure_not_null_view", "note"));
         } finally {
             dsl.execute("DROP VIEW IF EXISTS " + PUBLIC_SCHEMA + ".ensure_not_null_view");
@@ -331,9 +329,9 @@ class EnsureNotNullProcedureTest extends SingleTableTest {
      */
     @Test
     void boundsIdentifierLength() {
-        assertSqlState("22023", () -> dsl.execute("CALL ddl_utils.ensure_not_null(?, ?, ?)",
+        assertSqlState("22023", () -> Routines.ensureNotNull(dsl.configuration(),
                 "s".repeat(64), target(), "note"));
-        assertSqlState("22023", () -> dsl.execute("CALL ddl_utils.ensure_not_null(?, ?, ?)",
+        assertSqlState("22023", () -> Routines.ensureNotNull(dsl.configuration(),
                 PUBLIC_SCHEMA, "t".repeat(64), "note"));
         assertSqlState("22023", () -> callEnsureNotNull("c".repeat(64)));
         assertSqlState("42703", () -> callEnsureNotNull("c".repeat(63)));
@@ -348,7 +346,7 @@ class EnsureNotNullProcedureTest extends SingleTableTest {
     }
 
     private void callEnsureNotNull(String table, String column) {
-        dsl.execute("CALL ddl_utils.ensure_not_null(?, ?, ?)", PUBLIC_SCHEMA, table, column);
+        Routines.ensureNotNull(dsl.configuration(), PUBLIC_SCHEMA, table, column);
     }
 
     /**

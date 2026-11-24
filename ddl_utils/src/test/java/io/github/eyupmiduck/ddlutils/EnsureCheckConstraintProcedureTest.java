@@ -1,6 +1,9 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils.Routines;
+import org.jooq.SQLDialect;
 import org.jooq.exception.DataAccessException;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
@@ -103,8 +106,7 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
     void rejectsNonTableRelation() {
         dsl.execute("CREATE VIEW " + PUBLIC_SCHEMA + ".ensure_check_constraint_view AS SELECT 1 AS value");
         try {
-            assertSqlState("42809", () -> dsl.execute(
-                    "CALL ddl_utils.ensure_check_constraint(?, ?, ?, ?)",
+            assertSqlState("42809", () -> Routines.ensureCheckConstraint(dsl.configuration(),
                     PUBLIC_SCHEMA, "ensure_check_constraint_view", "positive", "value > 0"));
         } finally {
             dsl.execute("DROP VIEW IF EXISTS " + PUBLIC_SCHEMA + ".ensure_check_constraint_view");
@@ -170,11 +172,11 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
         List<Callable<Void>> tasks = new ArrayList<>();
         for (int i = 0; i < callers; i++) {
             tasks.add(() -> {
-                try (Connection connection = openWorkerConnection();
-                     Statement statement = connection.createStatement()) {
+                try (Connection connection = openWorkerConnection()) {
                     barrier.await(10, TimeUnit.SECONDS);
-                    statement.execute("CALL ddl_utils.ensure_check_constraint('"
-                            + PUBLIC_SCHEMA + "', '" + target() + "', 'positive', 'value > 0')");
+                    Routines.ensureCheckConstraint(
+                            DSL.using(connection, SQLDialect.POSTGRES).configuration(),
+                            PUBLIC_SCHEMA, target(), "positive", "value > 0");
                 }
                 return null;
             });
@@ -191,9 +193,9 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
      */
     @Test
     void rejectsMissingSourceTable() {
-        DataAccessException failure = assertThrows(DataAccessException.class, () -> dsl.execute(
-                "CALL ddl_utils.ensure_check_constraint(?, ?, ?, ?)",
-                PUBLIC_SCHEMA, "ensure_check_constraint_missing", "positive", "value > 0"));
+        DataAccessException failure = assertThrows(DataAccessException.class,
+                () -> Routines.ensureCheckConstraint(dsl.configuration(),
+                        PUBLIC_SCHEMA, "ensure_check_constraint_missing", "positive", "value > 0"));
 
         assertEquals("42P01", failure.sqlState());
         assertTrue(failure.getMessage().contains("ensure_check_constraint: table"),
@@ -251,7 +253,7 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
     }
 
     private void callEnsureCheckConstraint(String name, String expression) {
-        dsl.execute("CALL ddl_utils.ensure_check_constraint(?, ?, ?, ?)",
+        Routines.ensureCheckConstraint(dsl.configuration(),
                 PUBLIC_SCHEMA, target(), name, expression);
     }
 

@@ -206,7 +206,7 @@ class AlterTableTest extends SingleTableTest {
                     .get("value", String.class);
             assertNotEquals("0", before, "the test must start from a non-default lock_timeout");
 
-            tx.fetch("SELECT ddl_utils_lib.alter_table(?, ?, ?, ?, ?, ?)",
+            Routines.alterTable(tx.configuration(),
                     PUBLIC_SCHEMA, target(), "ADD COLUMN tuned int", DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION);
 
             String after = tx.fetchOne("SELECT current_setting('lock_timeout') AS value")
@@ -267,8 +267,8 @@ class AlterTableTest extends SingleTableTest {
             tx.execute("SET LOCAL lock_timeout = '7s'");
 
             try {
-                tx.transaction(inner -> DSL.using(inner).fetch(
-                        "SELECT ddl_utils_lib.alter_table(?, ?, ?, ?, ?, ?)",
+                tx.transaction(inner -> Routines.alterTable(
+                        DSL.using(inner).configuration(),
                         PUBLIC_SCHEMA, target(), "ADD COLUMN x int; SELECT 1",
                         DDL_LOCK_TIMEOUT, SLEEP_TIME, STATEMENT_DURATION));
                 fail("expected the invalid fragment to be rejected");
@@ -281,8 +281,8 @@ class AlterTableTest extends SingleTableTest {
                 int holderPid = holdAccessShareLock(other, target());
                 awaitAccessShareLockHeld(target(), holderPid);
                 try {
-                    tx.transaction(inner -> DSL.using(inner).fetch(
-                            "SELECT ddl_utils_lib.alter_table(?, ?, ?, ?, ?, ?)",
+                    tx.transaction(inner -> Routines.alterTable(
+                            DSL.using(inner).configuration(),
                             PUBLIC_SCHEMA, target(), "ADD COLUMN never int", 100, 100, 300));
                     fail("expected the lock-exhausted call to give up");
                 } catch (DataAccessException expected) {

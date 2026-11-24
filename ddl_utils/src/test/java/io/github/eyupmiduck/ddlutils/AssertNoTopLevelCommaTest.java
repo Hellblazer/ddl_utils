@@ -1,5 +1,6 @@
 package io.github.eyupmiduck.ddlutils;
 
+import io.github.eyupmiduck.ddlutils.jooq.ddl_utils_lib.Routines;
 import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -107,6 +108,6 @@ class AssertNoTopLevelCommaTest extends PostgresTestBase {
     }
 
     private void assertNoTopLevelComma(String value, String context) {
-        dsl.fetchOne("SELECT ddl_utils_lib.assert_no_top_level_comma(?, ?)", value, context);
+        Routines.assertNoTopLevelComma(dsl.configuration(), value, context);
     }
 }
