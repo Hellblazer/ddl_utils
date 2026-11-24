@@ -168,7 +168,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
             CyclicBarrier barrier = new CyclicBarrier(callers);
             List<Callable<Void>> tasks = new ArrayList<>();
             tasks.add(() -> {
-                try (Connection connection = openWorkerConnection()) {
+                try (Connection connection = openConnectionWithStatementTimeout(WORKER_STATEMENT_TIMEOUT)) {
                     barrier.await(10, TimeUnit.SECONDS);
                     Routines.ensureForeignKey(
                             DSL.using(connection, SQLDialect.POSTGRES).configuration(),
@@ -178,7 +178,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
                 return null;
             });
             tasks.add(() -> {
-                try (Connection connection = openWorkerConnection()) {
+                try (Connection connection = openConnectionWithStatementTimeout(WORKER_STATEMENT_TIMEOUT)) {
                     barrier.await(10, TimeUnit.SECONDS);
                     Routines.ensureForeignKey(
                             DSL.using(connection, SQLDialect.POSTGRES).configuration(),
@@ -496,26 +496,7 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
         return row;
     }
 
-    /**
-     * Opens a worker connection whose session aborts any statement after
-     * {@link #WORKER_STATEMENT_TIMEOUT}: the backstop for a CALL the driver
-     * cannot interrupt once it is blocked in a socket read.
-     *
-     * @return a connection with a server-side statement timeout
-     * @throws SQLException if the connection or the setting fails
-     */
-    private Connection openWorkerConnection() throws SQLException {
-        Connection connection = openTestConnection();
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET statement_timeout = '" + WORKER_STATEMENT_TIMEOUT + "'");
-            return connection;
-        } catch (SQLException e) {
-            connection.close();
-            throw e;
-        }
-    }
-
-    /**
+        /**
      * Runs the tasks on a fixed pool and waits at most 30 s for each, cancelling
      * every worker on timeout and always shutting the pool down, so a blocked
      * procedure cannot hang the build.
