@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -36,16 +35,19 @@ class ProcedureCoverageTest extends PostgresTestBase {
             List<PlpgsqlCheck.Finding> findings =
                     PlpgsqlCheck.findFindings(owner, List.of(PUBLIC_SCHEMA));
 
-            PlpgsqlCheck.Finding broken = findings.stream()
+            List<PlpgsqlCheck.Finding> procedureFindings = findings.stream()
                     .filter(finding -> finding.function() != null
                             && finding.function().contains("broken_procedure_probe"))
-                    .findFirst()
-                    .orElseThrow(() -> new AssertionError(
-                            "no plpgsql_check finding for the deliberately broken procedure; findings: " + findings));
-            String message = broken.message();
-            assertNotNull(message, "the finding must carry a message");
-            assertTrue(message.contains("nonexistent_col"),
-                    () -> "the finding should name the missing column: " + message);
+                    .toList();
+            assertTrue(!procedureFindings.isEmpty(),
+                    () -> "no plpgsql_check finding for the deliberately broken procedure; findings: " + findings);
+            // plpgsql_check may return several findings for one routine and their
+            // order is not stable, so assert that one names the missing column
+            // rather than requiring it to be first.
+            assertTrue(procedureFindings.stream()
+                            .anyMatch(finding -> finding.message() != null
+                                    && finding.message().contains("nonexistent_col")),
+                    () -> "a finding should name the missing column; findings: " + procedureFindings);
         } finally {
             try {
                 dsl.execute("DROP PROCEDURE IF EXISTS " + PUBLIC_SCHEMA + ".broken_procedure_probe()");
