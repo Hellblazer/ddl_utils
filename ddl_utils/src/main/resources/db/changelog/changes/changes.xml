@@ -4,6 +4,11 @@
         xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.22.xsd">
 
+    <!-- The changelog is deployed. Released schema changesets are frozen: do not
+         edit their id, SQL, rollback or attributes; add a new changeset for
+         schema work. Routine, procedure and trigger changesets use runOnChange
+         and their object files are edited in place. -->
+
     <!-- Fail fast, before any DDL, when the documented role setup was skipped:
          every grant below assumes ddl_utils_caller exists, and without this
          check the failure would come from the last changeset after every object
@@ -74,10 +79,13 @@
          changesets must attach the same trigger. -->
     <include file="triggers.xml" relativeToChangelogFile="true"/>
 
-    <!-- A single, re-runnable changeset for all caller grants. runOnChange
-         re-applies it whenever the SQL changes, so new grants reach existing
-         databases. It is add-only: a GRANT removed from the file is not
-         reverted, so removal must always be an explicit REVOKE. Keep the
+    <!-- The caller grants for the released changesets. This changeset is frozen:
+         do not edit it. New routines need a new grant changeset (with its own
+         rollback) added after their object-creating changeset; the new
+         changeset must keep the same add-only/REVOKE discipline.
+
+         For the initial install this file is add-only: a GRANT removed from it
+         is not reverted, so removal must always be an explicit REVOKE. Keep the
          statements idempotent. Keep this changeset physically after every
          object-creating include (functions.xml, procedures.xml, triggers.xml):
          Liquibase orders by file position, not by the "999" id, so otherwise a

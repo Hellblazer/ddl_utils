@@ -11,6 +11,11 @@ JUnit 5 / Testcontainers harness that exercises those routines. You install
 ddl_utils with the Liquibase CLI, without building anything or running Docker
 (see [Installing with the Liquibase CLI](#installing-with-the-liquibase-cli)).
 
+The changelog is deployed. Released schema changesets and their SQL/rollback
+files are frozen; routine, procedure and trigger files are edited in place under
+`runOnChange`. New schema work adds a new changeset. See
+[CONTRIBUTING.md](CONTRIBUTING.md#database-changes).
+
 ## Why: DDL locks are brutal
 
 PostgreSQL acquires an `ACCESS EXCLUSIVE` lock for almost every `ALTER TABLE`
@@ -189,7 +194,8 @@ the Liquibase CLI at `db.changelog-master.xml`.
   routines that the migration role creates later in this database (the revoke
   must be database-wide: a per-schema `REVOKE` cannot remove PostgreSQL's
   built-in global grant), so a routine added by a later changeset is not
-  world-executable by default.
+  world-executable by default. The initial grant changeset is frozen; a routine
+  added after it needs its own grant changeset (with a rollback).
 
 ### 1. Create the roles
 
@@ -399,8 +405,8 @@ uploads the linter's SARIF output to GitHub code scanning, so findings show
 inline on pull requests.
 `BaselineUpgradeTest` upgrades from the latest published release below the
 current revision to the current changelog and compares the two catalogs. It is
-enabled in `verify`; disable it only while a baseline is edited in place, and
-re-enable it after the replacement release.
+enabled in `verify`; do not disable it to edit a published baseline in place.
+A published baseline is immutable: publish a replacement release instead.
 `PlpgsqlCheckTest` also runs `plpgsql_check` over every routine and fails on any
 finding not accepted in `plpgsql-check-whitelist.yml`, using the shared
 `PlpgsqlCheck` helper from `liquibase-validation`. The container tests inherit

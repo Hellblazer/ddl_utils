@@ -8,13 +8,17 @@ what makes a long verification scan tolerable.
 
 One procedure per `.sql` file under `procedures/<schema>/`, named `snake_case`
 without an `NNN-` prefix. `changes/procedures.xml` holds one
-`procedure-<schema>.<name>` `runOnChange` changeset per procedure (a
-`createProcedure` plus its rollback); `changes/procedures-rollback/<schema>/`
-holds the rollback bodies.
+`procedure-<schema>.<name>` changeset per procedure (a `createProcedure` plus
+its rollback); `changes/procedures-rollback/<schema>/` holds the rollback
+bodies.
 
-Nothing is deployed yet, so a signature change is made in place in the procedure
-file and its rollback. Do not add `DROP PROCEDURE IF EXISTS <old signature>`
-guards or compatibility changesets.
+The changelog is deployed. Schema changesets are frozen, but procedure files are
+edited in place: `runOnChange` re-applies the changed body on upgrade. Keep the
+changeset id/path/attributes fixed and do not add versioned files. A signature
+change adds `DROP PROCEDURE IF EXISTS <old signature>;` before the new
+`CREATE OR REPLACE`, updates the paired rollback, and adds or updates the grant
+in a new grant changeset. `RoutineSignatureTest` fails if a routine name has
+more than one signature unless an intentional overload is allow-listed.
 
 ## The orchestration rule
 

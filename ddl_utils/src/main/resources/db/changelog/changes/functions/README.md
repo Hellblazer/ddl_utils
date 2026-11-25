@@ -11,14 +11,18 @@ One function per `.sql` file, grouped by the schema that owns it:
   EXCLUSIVE` and therefore never blocks DML lives here only
   (`validate_constraint` and `has_top_level_comma`).
 
-`changes/functions.xml` loads them one `createProcedure` per `runOnChange`
-changeset; the matching drop lives in `changes/functions-rollback/`. Every
+`changes/functions.xml` loads them one `createProcedure` per changeset; the
+matching drop lives in `changes/functions-rollback/`. Every
 routine is `SECURITY INVOKER` except the setters/clearers, which are
 `SECURITY DEFINER` (callers only have `SELECT` on the settings tables).
 
-Nothing is deployed yet, so a signature change is made in place in the function
-file and its rollback. Do not add `DROP FUNCTION IF EXISTS <old signature>`
-guards or compatibility changesets.
+The changelog is deployed. Schema changesets are frozen, but routine files are
+edited in place: `runOnChange` re-applies the changed body on upgrade. Keep the
+changeset id/path/attributes fixed and do not add versioned files. A signature
+change adds `DROP FUNCTION IF EXISTS <old signature>;` before the new
+`CREATE OR REPLACE`, updates the paired rollback, and adds or updates the grant
+in a new grant changeset. `RoutineSignatureTest` fails if a routine name has
+more than one signature unless an intentional overload is allow-listed.
 
 Each routine file ends with a `COMMENT ON FUNCTION` / `COMMENT ON PROCEDURE`
 for the routine it creates, using the short form (`schema.name`, no argument

@@ -6,16 +6,18 @@
 
     <!-- One changeset per stored function. Each function lives in its own file
          under functions/<schema>/ and is added with createProcedure (Liquibase
-         has no createFunction change type). runOnChange re-applies only the
-         changeset whose body changed, and each one carries its own rollback.
+         has no createFunction change type). Each one carries its own rollback.
 
-         Nothing is deployed yet, so a signature change is made in place: edit
-         the routine file and let CREATE OR REPLACE define the one current
-         signature. Do not add `DROP FUNCTION IF EXISTS <old signature>` guards
-         or compatibility changesets; a fresh database defines only the new
-         signature. Update the paired rollback in the same change, because it
-         drops the current signature. RoutineSignatureTest fails the build if a
-         routine name ends up with more than one signature unless the overload is
+         The changelog is deployed. Schema changesets are frozen, but these
+         routine changesets use runOnChange: edit the routine file and its paired
+         rollback in place, keep the changeset id/path/attributes fixed, and the
+         changed body is re-applied on upgrade. Do not add versioned files or
+         rename a routine to change it. CREATE OR REPLACE only replaces an
+         identical signature; when the signature changes, add
+         `DROP FUNCTION IF EXISTS <old signature>;` before the new
+         CREATE OR REPLACE, update the rollback, and add or update the grant in a
+         new grant changeset. RoutineSignatureTest fails the build if a routine
+         name ends up with more than one signature unless the overload is
          explicitly allow-listed.
 
          The order of the changesets is not significant (PL/pgSQL resolves called

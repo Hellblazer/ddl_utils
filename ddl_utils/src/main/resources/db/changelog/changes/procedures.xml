@@ -7,17 +7,19 @@
     <!-- One changeset per stored procedure, mirroring functions.xml. Each
          procedure lives in its own file under procedures/<schema>/ and is added
          with createProcedure (Liquibase has no createFunction/createProcedure
-         distinction beyond the change type). runOnChange re-applies only the
-         body that changed, and each routine carries its own rollback under
-         procedures-rollback/<schema>/.
+         distinction beyond the change type). Each routine carries its own
+         rollback under procedures-rollback/<schema>/.
 
-         Nothing is deployed yet, so a signature change is made in place: edit
-         the procedure file and let CREATE OR REPLACE define the one current
-         signature. Do not add `DROP PROCEDURE IF EXISTS <old signature>` guards
-         or compatibility changesets; a fresh database defines only the new
-         signature. Update the paired rollback in the same change, because it
-         drops the current signature. RoutineSignatureTest fails the build if a
-         routine name ends up with more than one signature unless the overload is
+         The changelog is deployed. Schema changesets are frozen, but these
+         routine changesets use runOnChange: edit the procedure file and its
+         paired rollback in place, keep the changeset id/path/attributes fixed,
+         and the changed body is re-applied on upgrade. Do not add versioned
+         files or rename a routine to change it. CREATE OR REPLACE only replaces
+         an identical signature; when the signature changes, add
+         `DROP PROCEDURE IF EXISTS <old signature>;` before the new
+         CREATE OR REPLACE, update the rollback, and add or update the grant in a
+         new grant changeset. RoutineSignatureTest fails the build if a routine
+         name ends up with more than one signature unless the overload is
          explicitly allow-listed.
 
          A procedure commits between its ALTER TABLE steps, so a CALL must run

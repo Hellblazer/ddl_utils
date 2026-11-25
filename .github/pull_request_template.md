@@ -20,6 +20,7 @@
 - [ ] SQLFluff passes; I ran `scripts/sqlfluff-fix.sh` if it did not
 - [ ] Schema changes are Liquibase changesets added to `changes/changes.xml`, with forward SQL in `sql_changes/` and
   rollback SQL in `rollback/`
+- [ ] Existing released schema changesets are frozen; routine/trigger files are edited in place under `runOnChange`
 - [ ] Tests are added or updated, have Javadoc, and database tests extend `PostgresTestBase`
 - [ ] Database access uses jOOQ's DSL; raw SQL is limited to DDL, catalog
   introspection, session settings, and SQL the DSL cannot express

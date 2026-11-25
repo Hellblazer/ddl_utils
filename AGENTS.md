@@ -21,6 +21,11 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 `./mvnw clean verify` on pull requests to
 `main`.
 
+The changelog is deployed: releases are published and consumers apply them.
+Released schema changesets are frozen; routine, procedure and trigger
+changesets use `runOnChange` and their object files are edited in place. See the
+Liquibase section.
+
 - `scripts/` is a git submodule of `eyupmiduck/workflow_library` (the shared
   build/dev shims: the custom PostgreSQL image, the local-DB scripts, the
   release script). Run `git submodule update --init` after cloning. Keep the
@@ -97,10 +102,10 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - The previous-release upgrade test is `BaselineUpgradeTest`. It resolves the
   latest published release strictly below the current revision, applies it, then
   the current changelog, and compares the two catalogs. It is enabled in the
-  normal `verify` gate; disable it only while a baseline is edited in place, and
-  re-enable it after the replacement release. Do not delete the shared upgrade
-  support or the `upgrade.current.version` property. Any later in-place schema
-  edit repeats the disable -> baseline release -> re-enable cycle.
+  normal `verify` gate. Never disable it to edit a published baseline in place:
+  a published baseline is immutable. If a baseline is wrong, publish a
+  replacement release instead. Do not delete the shared upgrade support or the
+  `upgrade.current.version` property.
 - A release is a `v<version>` tag pushed to `main`. The `Release` workflow (`.github/workflows/release.yml`) derives the
   version from the tag (`-Drevision=${tag#v}`), runs the full `verify` gate, deploys to GitHub
   Packages, then creates the GitHub Release. Do not tag a commit that CI has
@@ -209,14 +214,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   `<createProcedure path="functions/<schema>/<name>.sql" relativeToChangelogFile="true"/>`.
   Liquibase has no `createFunction` change type, so functions use
   `createProcedure` too; the `path` attribute keeps SQL out of the XML.
-- `CREATE OR REPLACE` only replaces a routine with an identical signature.
-  Nothing is deployed yet, so a signature change is made in place: edit the
-  routine file and let `CREATE OR REPLACE` define the one current signature. Do
-  not add `DROP FUNCTION IF EXISTS <old signature>;` guards or compatibility
-  changesets — a fresh database (and every test and CI database) defines only
-  the new signature. Update the paired rollback in the same change, because it
-  drops the current signature. `RoutineSignatureTest` fails the build if a
-  routine name ends up with more than one signature unless the overload is
+- `CREATE OR REPLACE` only replaces a routine with an identical signature. The
+  changelog is deployed, but routine files are edited in place: `runOnChange`
+  re-applies the changed body on upgrade. When the signature changes, add
+  `DROP FUNCTION IF EXISTS <old signature>;` (or `DROP PROCEDURE IF EXISTS`)
+  before the new `CREATE OR REPLACE`, update the paired rollback, and add or
+  update the grant in a new grant changeset. Do not add versioned routine files
+  or rename a routine just to change it. `RoutineSignatureTest` fails the build
+  if a routine name ends up with more than one signature unless the overload is
   explicitly allow-listed.
 - Type routine arguments with the `ddl_utils` domains (for example
   `non_null_text`, `non_negative_integer`) so null or invalid inputs fail
@@ -257,7 +262,13 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   `triggers-rollback/` from the `NNN-` file-name rule, like `functions/`.
 - Prefer changes that are safe to deploy against a live database.
 - Consider rollback and idempotency where appropriate.
-- Do not modify an already-deployed changeset unless explicitly instructed.
+- Every released schema changeset is frozen: never edit its id, SQL, rollback
+  or attributes; add a new changeset for schema work. Routine, procedure and
+  trigger changesets are the `runOnChange` exception: edit the object file and
+  its paired rollback in place, keep the changeset id/path/attributes fixed, and
+  do not add versioned copies. A changeset added since the last release may be
+  edited until the release that publishes it, then it is frozen (or, for a
+  `runOnChange` object changeset, editable in place).
 - Liquibase's tracking tables are kept out of the application schemas: they live
   in a dedicated `liquibase` schema as `ddl_utils_databasechangelog` and
   `ddl_utils_databasechangeloglock`. Every entry point sets this — the jOOQ
