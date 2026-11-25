@@ -80,13 +80,13 @@ BEGIN
     -- session has already removed.
     FOR l_step IN 1..4
         LOOP
-            -- The lock is released by each COMMIT, so take it again and re-read
-            -- the catalog before acting. External DDL is not blocked by the
-            -- advisory lock: re-resolving by name (and re-checking relkind)
-            -- makes a dropped/renamed relation fail as 42P01, a non-table as
-            -- 42809, and a renamed/dropped column as 42703. A same-name
-            -- replacement is the target relation, because the call is
-            -- name-addressed.
+        -- The lock is released by each COMMIT, so take it again and re-read
+        -- the catalog before acting. External DDL is not blocked by the
+        -- advisory lock: re-resolving by name (and re-checking relkind)
+        -- makes a dropped/renamed relation fail as 42P01, a non-table as
+        -- 42809, and a renamed/dropped column as 42703. A same-name
+        -- replacement is the target relation, because the call is
+        -- name-addressed.
             PERFORM ddl_utils_lib.acquire_operation_lock(
                     i_context => 'ddl_utils.ensure_not_null',
                     i_keys => ARRAY [

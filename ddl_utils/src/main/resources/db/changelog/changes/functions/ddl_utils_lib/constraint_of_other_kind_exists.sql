@@ -24,6 +24,6 @@ COMMENT ON FUNCTION ddl_utils_lib.constraint_of_other_kind_exists(
     regclass,
     ddl_utils.non_null_text,
     text
-) IS
+    ) IS
     'Returns whether a same-named constraint of a different contype exists on '
         'the relation, so the caller can name the duplicate-object conflict.';

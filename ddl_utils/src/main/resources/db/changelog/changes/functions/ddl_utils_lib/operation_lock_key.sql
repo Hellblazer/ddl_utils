@@ -26,6 +26,6 @@ $$;
 COMMENT ON FUNCTION ddl_utils_lib.operation_lock_key(
     ddl_utils.non_null_text,
     ddl_utils.non_empty_non_null_text_array
-) IS
+    ) IS
     'Builds a deterministic, order-independent advisory-lock key from a '
         'routine context and its quoted identifier keys.';

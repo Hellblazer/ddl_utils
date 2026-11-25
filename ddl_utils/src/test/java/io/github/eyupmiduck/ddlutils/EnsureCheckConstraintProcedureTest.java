@@ -7,8 +7,6 @@ import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
@@ -230,7 +228,7 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
                 () -> "the message should name the missing table: " + failure.getMessage());
     }
 
-        /**
+    /**
      * Runs the tasks on a fixed pool and waits at most 30 s for each, cancelling
      * every worker on timeout and always shutting the pool down, so a blocked
      * procedure cannot hang the build.

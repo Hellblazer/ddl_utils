@@ -49,6 +49,6 @@ COMMENT ON FUNCTION ddl_utils_lib.resolve_table_relation(
     ddl_utils.non_null_text,
     ddl_utils.non_null_text,
     ddl_utils.non_null_text
-) IS
+    ) IS
     'Resolves schema.table to its regclass and requires relkind r/p, raising '
         '42P01 (missing) or 42809 (not a table) with the context and label.';

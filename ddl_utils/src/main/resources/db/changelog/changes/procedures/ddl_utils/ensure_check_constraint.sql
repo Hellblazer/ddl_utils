@@ -66,9 +66,9 @@ BEGIN
     SELECT s.constraint_oid
     INTO l_constraint_oid
     FROM ddl_utils_lib.constraint_state(
-            i_relation => l_relation,
-            i_constraint_name => i_constraint_name,
-            i_contype => 'c') AS s;
+                 i_relation => l_relation,
+                 i_constraint_name => i_constraint_name,
+                 i_contype => 'c') AS s;
 
     -- Step 1: add the constraint as NOT VALID (instant; brief ACCESS
     -- EXCLUSIVE). Skipped when it already exists, which is how a re-run
@@ -107,9 +107,9 @@ BEGIN
     SELECT s.constraint_oid, s.convalidated
     INTO l_constraint_oid, l_convalidated
     FROM ddl_utils_lib.constraint_state(
-            i_relation => l_relation,
-            i_constraint_name => i_constraint_name,
-            i_contype => 'c') AS s;
+                 i_relation => l_relation,
+                 i_constraint_name => i_constraint_name,
+                 i_contype => 'c') AS s;
 
     IF l_constraint_oid IS NULL THEN
         IF ddl_utils_lib.constraint_of_other_kind_exists(

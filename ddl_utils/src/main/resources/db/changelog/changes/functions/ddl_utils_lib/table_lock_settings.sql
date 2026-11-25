@@ -31,6 +31,6 @@ $$;
 COMMENT ON FUNCTION ddl_utils_lib.table_lock_settings(
     ddl_utils.non_null_text,
     ddl_utils.non_null_text
-) IS
+    ) IS
     'Returns the effective lock settings for a table as one composite, so the '
         'lock-aware wrappers share one named projection.';

@@ -3,7 +3,11 @@ CREATE OR REPLACE FUNCTION ddl_utils_lib.constraint_state(
     i_constraint_name ddl_utils.non_null_text,
     i_contype text
 )
-    RETURNS TABLE (constraint_oid oid, convalidated boolean)
+    RETURNS TABLE
+            (
+                constraint_oid oid,
+                convalidated   boolean
+            )
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
@@ -26,6 +30,6 @@ COMMENT ON FUNCTION ddl_utils_lib.constraint_state(
     regclass,
     ddl_utils.non_null_text,
     text
-) IS
+    ) IS
     'Returns the OID and convalidated flag of a named constraint of the given '
         'contype on the relation, or no row when it does not exist.';

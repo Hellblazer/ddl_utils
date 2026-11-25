@@ -43,6 +43,6 @@ COMMENT ON FUNCTION ddl_utils_lib.assert_columns_exist(
     ddl_utils.non_null_text,
     ddl_utils.non_empty_non_null_text_array,
     ddl_utils.non_null_text
-) IS
+    ) IS
     'Raises 42703 unless every named column exists on the relation; used by '
         'the foreign-key helpers and procedure before building a definition check.';

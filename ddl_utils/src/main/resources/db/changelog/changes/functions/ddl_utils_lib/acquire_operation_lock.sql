@@ -20,6 +20,6 @@ $$;
 COMMENT ON FUNCTION ddl_utils_lib.acquire_operation_lock(
     ddl_utils.non_null_text,
     ddl_utils.non_empty_non_null_text_array
-) IS
+    ) IS
     'Takes the transaction-scoped advisory lock for an operation context and '
         'its identifier keys; released by COMMIT and re-taken per step.';

@@ -278,6 +278,7 @@ Lock-aware wrapper over `ddl_utils_lib.add_check_constraint`; adds the
 constraint `NOT VALID`.
 
 ###
+
 `ddl_utils.add_foreign_key(i_schema_name, i_table_name, i_constraint_name, i_column_names, i_referenced_schema_name, i_referenced_table_name, i_referenced_column_names)`
 
 Lock-aware wrapper over `ddl_utils_lib.add_foreign_key`; adds the constraint

@@ -123,9 +123,9 @@ BEGIN
     SELECT s.constraint_oid
     INTO l_constraint_oid
     FROM ddl_utils_lib.constraint_state(
-            i_relation => l_relation,
-            i_constraint_name => i_constraint_name,
-            i_contype => 'f') AS s;
+                 i_relation => l_relation,
+                 i_constraint_name => i_constraint_name,
+                 i_contype => 'f') AS s;
 
     -- A foreign key can be compared exactly, so a same-named key that references
     -- a different table, maps different columns, or has different referential
@@ -205,9 +205,9 @@ BEGIN
     SELECT s.constraint_oid
     INTO l_constraint_oid
     FROM ddl_utils_lib.constraint_state(
-            i_relation => l_relation,
-            i_constraint_name => i_constraint_name,
-            i_contype => 'f') AS s;
+                 i_relation => l_relation,
+                 i_constraint_name => i_constraint_name,
+                 i_contype => 'f') AS s;
 
     IF l_constraint_oid IS NULL THEN
         RAISE EXCEPTION

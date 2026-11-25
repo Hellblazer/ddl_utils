@@ -2,18 +2,10 @@ package io.github.eyupmiduck.ddlutils;
 
 import org.jooq.DSLContext;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 /**
  * Pauses a committed procedure between its steps by queuing session-level
@@ -37,40 +29,9 @@ import java.util.concurrent.TimeUnit;
  */
 final class AdvisoryLockStepGate implements AutoCloseable {
 
-    /**
-     * The procedure call under test, run on the worker connection.
-     */
-    @FunctionalInterface
-    interface ProcedureCall {
-
-        /**
-         * Runs the procedure.
-         *
-         * @param connection the worker connection
-         * @throws Exception if the call fails
-         */
-        void run(Connection connection) throws Exception;
-    }
-
-    /**
-     * Opens a test-role connection for the worker or a gate.
-     */
-    @FunctionalInterface
-    interface ConnectionFactory {
-
-        /**
-         * Opens a connection.
-         *
-         * @return the connection
-         * @throws SQLException if the connection cannot be opened
-         */
-        Connection open() throws SQLException;
-    }
-
     private static final long POLL_INTERVAL_MILLIS = 50;
     private static final int POLL_ATTEMPTS = 600;
     private static final int WORKER_TIMEOUT_SECONDS = 60;
-
     private final DSLContext monitor;
     private final ConnectionFactory connections;
     private final long key;
@@ -81,7 +42,6 @@ final class AdvisoryLockStepGate implements AutoCloseable {
     private final List<Connection> gates = new ArrayList<>();
     private Connection currentGate;
     private Future<Throwable> result;
-
     private AdvisoryLockStepGate(DSLContext monitor, ConnectionFactory connections, long key,
                                  Connection holder, Connection worker) throws SQLException {
         this.monitor = monitor;
@@ -139,6 +99,27 @@ final class AdvisoryLockStepGate implements AutoCloseable {
                 closeQuietly(holder);
             }
             throw e;
+        }
+    }
+
+    private static int backendPid(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet rows = statement.executeQuery("SELECT pg_backend_pid()")) {
+            if (!rows.next()) {
+                throw new SQLException("pg_backend_pid() returned no row");
+            }
+            return rows.getInt(1);
+        }
+    }
+
+    private static void closeQuietly(Connection connection) {
+        if (connection == null) {
+            return;
+        }
+        try {
+            connection.close();
+        } catch (SQLException ignored) {
+            // Best-effort cleanup; the test failure is already being reported.
         }
     }
 
@@ -291,24 +272,33 @@ final class AdvisoryLockStepGate implements AutoCloseable {
         }
     }
 
-    private static int backendPid(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement();
-             ResultSet rows = statement.executeQuery("SELECT pg_backend_pid()")) {
-            if (!rows.next()) {
-                throw new SQLException("pg_backend_pid() returned no row");
-            }
-            return rows.getInt(1);
-        }
+    /**
+     * The procedure call under test, run on the worker connection.
+     */
+    @FunctionalInterface
+    interface ProcedureCall {
+
+        /**
+         * Runs the procedure.
+         *
+         * @param connection the worker connection
+         * @throws Exception if the call fails
+         */
+        void run(Connection connection) throws Exception;
     }
 
-    private static void closeQuietly(Connection connection) {
-        if (connection == null) {
-            return;
-        }
-        try {
-            connection.close();
-        } catch (SQLException ignored) {
-            // Best-effort cleanup; the test failure is already being reported.
-        }
+    /**
+     * Opens a test-role connection for the worker or a gate.
+     */
+    @FunctionalInterface
+    interface ConnectionFactory {
+
+        /**
+         * Opens a connection.
+         *
+         * @return the connection
+         * @throws SQLException if the connection cannot be opened
+         */
+        Connection open() throws SQLException;
     }
 }

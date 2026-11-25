@@ -36,6 +36,6 @@ COMMENT ON FUNCTION ddl_utils_lib.column_not_null(
     ddl_utils.non_null_text,
     ddl_utils.non_null_text,
     ddl_utils.non_null_text
-) IS
+    ) IS
     'Returns pg_attribute.attnotnull for a column, raising 42703 when the '
         'column does not exist; a renamed or dropped column never reads as NULL.';
