@@ -10,14 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CyclicBarrier;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -36,6 +29,30 @@ class ForeignKeyPreLockTest extends PostgresTestBase {
     private static final String FORWARD = "fk_left_to_right";
     private static final String REVERSE = "fk_right_to_left";
     private static final String WORKER_STATEMENT_TIMEOUT = "15s";
+
+    private static void runConcurrently(List<Callable<Void>> tasks) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(tasks.size());
+        List<Future<Void>> futures = new ArrayList<>();
+        try {
+            for (Callable<Void> task : tasks) {
+                futures.add(pool.submit(task));
+            }
+            for (Future<Void> future : futures) {
+                try {
+                    future.get(30, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    for (Future<Void> pending : futures) {
+                        pending.cancel(true);
+                    }
+                    fail("a concurrent add_foreign_key call did not finish within 30 s", e);
+                } catch (ExecutionException e) {
+                    fail("a concurrent add_foreign_key call failed: " + e.getCause(), e.getCause());
+                }
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 
     @BeforeEach
     void createTables() {
@@ -84,30 +101,6 @@ class ForeignKeyPreLockTest extends PostgresTestBase {
                     PUBLIC_SCHEMA, referencedTable, new String[]{"id"});
         }
         return null;
-    }
-
-    private static void runConcurrently(List<Callable<Void>> tasks) throws Exception {
-        ExecutorService pool = Executors.newFixedThreadPool(tasks.size());
-        List<Future<Void>> futures = new ArrayList<>();
-        try {
-            for (Callable<Void> task : tasks) {
-                futures.add(pool.submit(task));
-            }
-            for (Future<Void> future : futures) {
-                try {
-                    future.get(30, TimeUnit.SECONDS);
-                } catch (TimeoutException e) {
-                    for (Future<Void> pending : futures) {
-                        pending.cancel(true);
-                    }
-                    fail("a concurrent add_foreign_key call did not finish within 30 s", e);
-                } catch (ExecutionException e) {
-                    fail("a concurrent add_foreign_key call failed: " + e.getCause(), e.getCause());
-                }
-            }
-        } finally {
-            pool.shutdownNow();
-        }
     }
 
     private void dropConstraintIfExists(String table, String constraint) {

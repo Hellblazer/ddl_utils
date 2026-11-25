@@ -80,7 +80,7 @@ BEGIN
                                OR pg_catalog.lower(i_referenced_lock_mode) = 'share row exclusive'
                                THEN 'SHARE ROW EXCLUSIVE'
                            ELSE 'SHARE UPDATE EXCLUSIVE'
-                           END;
+            END;
 
         PERFORM ddl_utils_lib.execute_with_lock_retry(
                 i_statement => pg_catalog.format('LOCK TABLE %s IN %s MODE',
