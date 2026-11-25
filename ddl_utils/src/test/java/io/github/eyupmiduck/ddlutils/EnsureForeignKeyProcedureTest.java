@@ -61,6 +61,28 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
     }
 
     /**
+     * A self-referencing key exercises the single-table branch of
+     * {@code lock_foreign_key_tables}: the add step requests SHARE ROW
+     * EXCLUSIVE on both sides, and the validate step requests SHARE UPDATE
+     * EXCLUSIVE on the source plus SHARE ROW EXCLUSIVE on the referenced side,
+     * which must escalate to one SHARE ROW EXCLUSIVE lock on the same table.
+     */
+    @Test
+    void addsAndValidatesSelfReferencingForeignKey() {
+        String self = "ensure_foreign_key_self";
+        createTestTable(self, "id int PRIMARY KEY, parent_id int");
+        try {
+            Routines.ensureForeignKey(dsl.configuration(),
+                    PUBLIC_SCHEMA, self, "fk_self", new String[]{"parent_id"},
+                    PUBLIC_SCHEMA, self, new String[]{"id"});
+
+            assertValidated(PUBLIC_SCHEMA, self, "fk_self");
+        } finally {
+            dropTestTable(self);
+        }
+    }
+
+    /**
      * The add step honours the referenced table's lock settings: with the
      * referenced table's budget far below the database default, an ACCESS
      * EXCLUSIVE lock on it makes the CALL give up quickly even though the

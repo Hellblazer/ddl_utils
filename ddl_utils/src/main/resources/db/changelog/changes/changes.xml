@@ -79,19 +79,21 @@
          changesets must attach the same trigger. -->
     <include file="triggers.xml" relativeToChangelogFile="true"/>
 
-    <!-- The caller grants for the released changesets. This changeset is frozen:
-         do not edit it. New routines need a new grant changeset (with its own
-         rollback) added after their object-creating changeset; the new
-         changeset must keep the same add-only/REVOKE discipline.
+    <!-- The caller grants for the changesets released before the foreign-key
+         lock helpers. This changeset is frozen: do not edit it or its SQL. It
+         is add-only: a GRANT removed from its file is never reverted on
+         existing databases. Withdrawing a released grant requires a new
+         changeset placed after this one that issues the explicit REVOKE; a
+         routine added later needs its own grant changeset (with its own
+         rollback), also placed after the object-creating include. Keep the
+         statements idempotent.
 
-         For the initial install this file is add-only: a GRANT removed from it
-         is not reverted, so removal must always be an explicit REVOKE. Keep the
-         statements idempotent. Keep this changeset physically after every
-         object-creating include (functions.xml, procedures.xml, triggers.xml):
-         Liquibase orders by file position, not by the "999" id, so otherwise a
-         newly created routine keeps PostgreSQL's default EXECUTE TO PUBLIC.
-         The SQL file must stay free of dollar-quoted blocks because the default
-         sqlFile splitter is not dollar-quote aware. -->
+         Keep this changeset physically after every object-creating include
+         (functions.xml, procedures.xml, triggers.xml): Liquibase orders by file
+         position, not by the "999" id, so otherwise a newly created routine
+         keeps PostgreSQL's default EXECUTE TO PUBLIC. The SQL file must stay
+         free of dollar-quoted blocks because the default sqlFile splitter is
+         not dollar-quote aware. -->
     <changeSet id="999-grant-privileges" author="lee.horner" dbms="postgresql" runOnChange="true">
         <sqlFile path="sql_changes/999-grant-privileges.sql" relativeToChangelogFile="true"/>
         <rollback>
