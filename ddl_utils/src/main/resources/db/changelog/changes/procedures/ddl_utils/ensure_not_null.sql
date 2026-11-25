@@ -15,7 +15,6 @@ DECLARE
     l_base             text;
     l_constraint_name  text;
     l_relation         regclass;
-    l_lock_key         bigint;
 BEGIN
     -- PostgreSQL truncates an over-long identifier with only a NOTICE, so each
     -- name is checked before any catalog lookup or DDL: an over-long table name
@@ -37,53 +36,26 @@ BEGIN
     -- below fail with 2D000 inside a transaction block.
     --
     -- Read the lock settings once; they are reused across every step.
-    SELECT ls.ddl_lock_timeout,
-           ls.sleep_time,
-           ls.statement_duration
-    INTO STRICT l_settings.ddl_lock_timeout,
-        l_settings.sleep_time,
-        l_settings.statement_duration
-    FROM ddl_utils.get_lock_settings(
-                 i_schema_name => i_schema_name,
-                 i_table_name => i_table_name
-         ) AS ls;
+    l_settings := ddl_utils_lib.table_lock_settings(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name);
 
-    l_relation := pg_catalog.format('%I.%I', i_schema_name, i_table_name)::regclass;
-
-    -- A named relation with an attribute is not necessarily a table a CHECK
-    -- constraint and SET NOT NULL can be added to; reject other relation kinds
-    -- (views, sequences, ...) before the commit-separated workflow starts.
     -- A partitioned parent ('p') is accepted, but the ADD/VALIDATE/SET/DROP
     -- steps recurse to every partition; the lock/retry settings below bound the
     -- parent statement only, not the per-partition locks and scans.
-    IF (SELECT c.relkind
-        FROM pg_catalog.pg_class AS c
-        WHERE c.oid = l_relation) NOT IN ('r', 'p') THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_not_null: %.% is not a table',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42809';
-    END IF;
-
-    -- A transaction-scoped advisory lock on this table and column serializes
-    -- concurrent runs. The lock is released by each COMMIT, so every step takes
-    -- it again and re-reads the catalog state before acting.
-    l_lock_key := pg_catalog.hashtextextended(
-            pg_catalog.format('ddl_utils.ensure_not_null|%I.%I.%I',
-                              i_schema_name, i_table_name, i_column_name),
-            0);
+    l_relation := ddl_utils_lib.resolve_table_relation(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_context => 'ddl_utils.ensure_not_null',
+            i_relation_label => 'table');
 
     -- Fail with a clear error rather than an opaque undefined_column from the
     -- generated CHECK when the column does not exist.
-    IF NOT EXISTS (SELECT 1
-                   FROM pg_catalog.pg_attribute
-                   WHERE attrelid = l_relation
-                     AND attname = i_column_name
-                     AND attnum > 0
-                     AND NOT attisdropped) THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_not_null: column %.% does not exist',
-            i_table_name, i_column_name
-            USING ERRCODE = '42703';
-    END IF;
+    PERFORM ddl_utils_lib.column_not_null(
+            i_relation => l_relation,
+            i_table_name => i_table_name,
+            i_column_name => i_column_name,
+            i_context => 'ddl_utils.ensure_not_null');
 
     -- A deterministic, collision-resistant name (<= 63 bytes) so a re-run after
     -- a partial failure finds the same temporary constraint instead of making a
@@ -108,21 +80,31 @@ BEGIN
     -- session has already removed.
     FOR l_step IN 1..4
         LOOP
-            PERFORM pg_catalog.pg_advisory_xact_lock(l_lock_key);
+        -- The lock is released by each COMMIT, so take it again and re-read
+        -- the catalog before acting. External DDL is not blocked by the
+        -- advisory lock: re-resolving by name (and re-checking relkind)
+        -- makes a dropped/renamed relation fail as 42P01, a non-table as
+        -- 42809, and a renamed/dropped column as 42703. A same-name
+        -- replacement is the target relation, because the call is
+        -- name-addressed.
+            PERFORM ddl_utils_lib.acquire_operation_lock(
+                    i_context => 'ddl_utils.ensure_not_null',
+                    i_keys => ARRAY [
+                        pg_catalog.format('%I.%I', i_schema_name, i_table_name),
+                        pg_catalog.format('%I', i_column_name)
+                        ]);
 
-            SELECT a.attnotnull
-            INTO l_already_not_null
-            FROM pg_catalog.pg_attribute AS a
-            WHERE a.attrelid = l_relation
-              AND a.attname = i_column_name
-              AND a.attnum > 0
-              AND NOT a.attisdropped;
+            l_relation := ddl_utils_lib.resolve_table_relation(
+                    i_schema_name => i_schema_name,
+                    i_table_name => i_table_name,
+                    i_context => 'ddl_utils.ensure_not_null',
+                    i_relation_label => 'table');
 
-            IF NOT FOUND THEN
-                RAISE EXCEPTION 'ddl_utils.ensure_not_null: column %.% does not exist',
-                    i_table_name, i_column_name
-                    USING ERRCODE = '42703';
-            END IF;
+            l_already_not_null := ddl_utils_lib.column_not_null(
+                    i_relation => l_relation,
+                    i_table_name => i_table_name,
+                    i_column_name => i_column_name,
+                    i_context => 'ddl_utils.ensure_not_null');
 
             -- The generated name is this routine's identity for its temporary
             -- proof. Refuse a same-named constraint that is not the expected
@@ -215,9 +197,18 @@ BEGIN
                                 );
                         COMMIT;
                     END IF;
-                WHEN 4 THEN -- Step 4: remove the temporary proof constraint. A foreign
-                -- same-named constraint was rejected above; a concurrent run
-                -- that already dropped its own proof leaves nothing to do.
+                WHEN 4 THEN -- Step 4: remove the temporary proof constraint. The
+                -- column must still be NOT NULL: external DDL can run between the
+                -- COMMITs, so a DROP NOT NULL after step 3 must fail the call
+                -- rather than let this step erase the proof and return success
+                -- with a nullable column.
+                    IF NOT l_already_not_null THEN
+                        RAISE EXCEPTION
+                            'ddl_utils.ensure_not_null: column %.% became nullable between steps; re-run the call',
+                            i_table_name, i_column_name
+                            USING ERRCODE = '55000';
+                    END IF;
+
                     IF l_proof_exists THEN
                         PERFORM ddl_utils_lib.drop_constraint(
                                 i_schema_name => i_schema_name,

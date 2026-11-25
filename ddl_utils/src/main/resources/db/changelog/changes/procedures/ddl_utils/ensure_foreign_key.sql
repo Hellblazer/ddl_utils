@@ -15,9 +15,7 @@ DECLARE
     l_settings            ddl_utils.lock_settings;
     l_relation            regclass;
     l_referenced_relation regclass;
-    l_relkind             text;
     l_constraint_oid      oid;
-    l_lock_key            bigint;
     l_existing_definition text;
 BEGIN
     -- PostgreSQL truncates an identifier to NAMEDATALEN - 1 bytes with only a
@@ -31,40 +29,15 @@ BEGIN
     END IF;
 
     -- Read the lock settings once; they are reused across both steps.
-    SELECT ls.ddl_lock_timeout,
-           ls.sleep_time,
-           ls.statement_duration
-    INTO STRICT l_settings.ddl_lock_timeout,
-        l_settings.sleep_time,
-        l_settings.statement_duration
-    FROM ddl_utils.get_lock_settings(
-                 i_schema_name => i_schema_name,
-                 i_table_name => i_table_name
-         ) AS ls;
+    l_settings := ddl_utils_lib.table_lock_settings(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name);
 
-    -- Resolve the source relation without a ::regclass cast, and test relkind
-    -- explicitly: a relation dropped between the two reads yields NULL, which
-    -- must be reported as undefined_table rather than falling through a NULL
-    -- comparison.
-    l_relation := pg_catalog.to_regclass(
-            pg_catalog.format('%I.%I', i_schema_name, i_table_name));
-
-    SELECT c.relkind::text
-    INTO l_relkind
-    FROM pg_catalog.pg_class AS c
-    WHERE c.oid = l_relation;
-
-    IF l_relkind IS NULL THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: table %.% does not exist',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42P01';
-    END IF;
-
-    IF l_relkind NOT IN ('r', 'p') THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: %.% is not a table',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42809';
-    END IF;
+    l_relation := ddl_utils_lib.resolve_table_relation(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_context => 'ddl_utils.ensure_foreign_key',
+            i_relation_label => 'table');
 
     -- The definitions are compared as a column mapping, which only makes sense
     -- for equal-length lists; reject mismatched lengths up front instead of
@@ -90,70 +63,37 @@ BEGIN
     -- concurrent runs, including reciprocal ensure_foreign_key(A -> B) and
     -- (B -> A): ADD FOREIGN KEY takes SHARE ROW EXCLUSIVE on both relations, so
     -- a source-only key lets reciprocal calls acquire the table locks in
-    -- opposite order and deadlock. Sort the two qualified names so both
-    -- directions use the same slot. The lock is released by each step's COMMIT
+    -- opposite order and deadlock. operation_lock_key sorts the keys, so both
+    -- directions use the same lock. The lock is released by each step's COMMIT
     -- and on error, and step 2 re-takes it after step 1's COMMIT.
-    l_lock_key := pg_catalog.hashtextextended(
-            pg_catalog.format('ddl_utils.ensure_foreign_key|%s|%s',
-                              least(
-                                      pg_catalog.format('%I.%I', i_schema_name, i_table_name),
-                                      pg_catalog.format('%I.%I', i_referenced_schema_name,
-                                                        i_referenced_table_name)),
-                              greatest(
-                                      pg_catalog.format('%I.%I', i_schema_name, i_table_name),
-                                      pg_catalog.format('%I.%I', i_referenced_schema_name,
-                                                        i_referenced_table_name))),
-            0);
-    PERFORM pg_catalog.pg_advisory_xact_lock(l_lock_key);
+    PERFORM ddl_utils_lib.acquire_operation_lock(
+            i_context => 'ddl_utils.ensure_foreign_key',
+            i_keys => ARRAY [
+                pg_catalog.format('%I.%I', i_schema_name, i_table_name),
+                pg_catalog.format('%I.%I', i_referenced_schema_name, i_referenced_table_name)
+                ]);
 
-    l_referenced_relation := pg_catalog.to_regclass(
-            pg_catalog.format('%I.%I', i_referenced_schema_name, i_referenced_table_name));
-
-    SELECT c.relkind::text
-    INTO l_relkind
-    FROM pg_catalog.pg_class AS c
-    WHERE c.oid = l_referenced_relation;
-
-    IF l_relkind IS NULL THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: referenced table %.% does not exist',
-            i_referenced_schema_name, i_referenced_table_name
-            USING ERRCODE = '42P01';
-    END IF;
-
-    IF l_relkind NOT IN ('r', 'p') THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: referenced relation %.% is not a table',
-            i_referenced_schema_name, i_referenced_table_name
-            USING ERRCODE = '42809';
-    END IF;
+    l_referenced_relation := ddl_utils_lib.resolve_table_relation(
+            i_schema_name => i_referenced_schema_name,
+            i_table_name => i_referenced_table_name,
+            i_context => 'ddl_utils.ensure_foreign_key',
+            i_relation_label => 'referenced table');
 
     -- A named column that does not resolve must fail loudly. Otherwise the
     -- pg_attribute join in the definition check silently drops it and reports a
     -- misleading "already exists with a different definition".
-    IF (SELECT pg_catalog.count(*)
-        FROM pg_catalog.unnest(i_column_names) AS t(name)
-                 JOIN pg_catalog.pg_attribute AS a
-                      ON a.attrelid = l_relation
-                          AND a.attname = t.name
-                          AND a.attnum > 0
-                          AND NOT a.attisdropped)
-        <> pg_catalog.cardinality(i_column_names) THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: a column of %.% does not exist',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42703';
-    END IF;
-
-    IF (SELECT pg_catalog.count(*)
-        FROM pg_catalog.unnest(i_referenced_column_names) AS t(name)
-                 JOIN pg_catalog.pg_attribute AS a
-                      ON a.attrelid = l_referenced_relation
-                          AND a.attname = t.name
-                          AND a.attnum > 0
-                          AND NOT a.attisdropped)
-        <> pg_catalog.cardinality(i_referenced_column_names) THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: a column of %.% does not exist',
-            i_referenced_schema_name, i_referenced_table_name
-            USING ERRCODE = '42703';
-    END IF;
+    PERFORM ddl_utils_lib.assert_columns_exist(
+            i_relation => l_relation,
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_column_names => i_column_names,
+            i_context => 'ddl_utils.ensure_foreign_key');
+    PERFORM ddl_utils_lib.assert_columns_exist(
+            i_relation => l_referenced_relation,
+            i_schema_name => i_referenced_schema_name,
+            i_table_name => i_referenced_table_name,
+            i_column_names => i_referenced_column_names,
+            i_context => 'ddl_utils.ensure_foreign_key');
 
     -- Even a NOT VALID foreign key requires the referenced columns to be
     -- covered by a unique index (a PRIMARY KEY/UNIQUE constraint or a bare
@@ -180,12 +120,12 @@ BEGIN
             USING ERRCODE = '42830';
     END IF;
 
-    SELECT c.oid
+    SELECT s.constraint_oid
     INTO l_constraint_oid
-    FROM pg_catalog.pg_constraint AS c
-    WHERE c.conname = i_constraint_name
-      AND c.conrelid = l_relation
-      AND c.contype = 'f';
+    FROM ddl_utils_lib.constraint_state(
+                 i_relation => l_relation,
+                 i_constraint_name => i_constraint_name,
+                 i_contype => 'f') AS s;
 
     -- A foreign key can be compared exactly, so a same-named key that references
     -- a different table, maps different columns, or has different referential
@@ -211,11 +151,10 @@ BEGIN
     -- A same-named constraint of another kind (PRIMARY KEY, UNIQUE, CHECK,
     -- EXCLUDE) would make add_foreign_key fail with a generic duplicate-object
     -- error; name the conflict instead.
-    IF EXISTS (SELECT 1
-               FROM pg_catalog.pg_constraint
-               WHERE conname = i_constraint_name
-                 AND conrelid = l_relation
-                 AND contype <> 'f') THEN
+    IF ddl_utils_lib.constraint_of_other_kind_exists(
+            i_relation => l_relation,
+            i_constraint_name => i_constraint_name,
+            i_contype => 'f') THEN
         RAISE EXCEPTION
             'ddl_utils.ensure_foreign_key: constraint % already exists on %.% as a different kind of constraint',
             i_constraint_name, i_schema_name, i_table_name
@@ -241,57 +180,34 @@ BEGIN
         COMMIT;
     END IF;
 
-    PERFORM pg_catalog.pg_advisory_xact_lock(l_lock_key);
+    PERFORM ddl_utils_lib.acquire_operation_lock(
+            i_context => 'ddl_utils.ensure_foreign_key',
+            i_keys => ARRAY [
+                pg_catalog.format('%I.%I', i_schema_name, i_table_name),
+                pg_catalog.format('%I.%I', i_referenced_schema_name, i_referenced_table_name)
+                ]);
 
     -- The COMMIT released the lock, so re-resolve both relations and re-verify
     -- the constraint before validating it. External DDL is not blocked by the
     -- advisory lock.
-    l_relation := pg_catalog.to_regclass(
-            pg_catalog.format('%I.%I', i_schema_name, i_table_name));
+    l_relation := ddl_utils_lib.resolve_table_relation(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_context => 'ddl_utils.ensure_foreign_key',
+            i_relation_label => 'table');
 
-    SELECT c.relkind::text
-    INTO l_relkind
-    FROM pg_catalog.pg_class AS c
-    WHERE c.oid = l_relation;
+    l_referenced_relation := ddl_utils_lib.resolve_table_relation(
+            i_schema_name => i_referenced_schema_name,
+            i_table_name => i_referenced_table_name,
+            i_context => 'ddl_utils.ensure_foreign_key',
+            i_relation_label => 'referenced table');
 
-    IF l_relkind IS NULL THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: table %.% does not exist',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42P01';
-    END IF;
-
-    IF l_relkind NOT IN ('r', 'p') THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: %.% is not a table',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42809';
-    END IF;
-
-    l_referenced_relation := pg_catalog.to_regclass(
-            pg_catalog.format('%I.%I', i_referenced_schema_name, i_referenced_table_name));
-
-    SELECT c.relkind::text
-    INTO l_relkind
-    FROM pg_catalog.pg_class AS c
-    WHERE c.oid = l_referenced_relation;
-
-    IF l_relkind IS NULL THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: referenced table %.% does not exist',
-            i_referenced_schema_name, i_referenced_table_name
-            USING ERRCODE = '42P01';
-    END IF;
-
-    IF l_relkind NOT IN ('r', 'p') THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_foreign_key: referenced relation %.% is not a table',
-            i_referenced_schema_name, i_referenced_table_name
-            USING ERRCODE = '42809';
-    END IF;
-
-    SELECT c.oid
+    SELECT s.constraint_oid
     INTO l_constraint_oid
-    FROM pg_catalog.pg_constraint AS c
-    WHERE c.conname = i_constraint_name
-      AND c.conrelid = l_relation
-      AND c.contype = 'f';
+    FROM ddl_utils_lib.constraint_state(
+                 i_relation => l_relation,
+                 i_constraint_name => i_constraint_name,
+                 i_contype => 'f') AS s;
 
     IF l_constraint_oid IS NULL THEN
         RAISE EXCEPTION
@@ -300,6 +216,13 @@ BEGIN
             USING ERRCODE = '42704';
     END IF;
 
+    -- The comparison is by the caller's column names, not by attnum: a source
+    -- or referenced column renamed between steps updates the stored definition
+    -- to the new name, so the mapping no longer matches the requested names.
+    -- Fail closed (42710) and leave the key NOT VALID rather than validate a
+    -- key the caller may not recognize; a re-run with the new names validates
+    -- it. This misreports a rename as a definition change, but never silently
+    -- accepts or validates the wrong mapping.
     IF NOT ddl_utils_lib.foreign_key_definition_matches(
             i_schema_name => i_schema_name,
             i_table_name => i_table_name,

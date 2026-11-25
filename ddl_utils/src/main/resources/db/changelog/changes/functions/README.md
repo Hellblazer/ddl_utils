@@ -278,6 +278,7 @@ Lock-aware wrapper over `ddl_utils_lib.add_check_constraint`; adds the
 constraint `NOT VALID`.
 
 ###
+
 `ddl_utils.add_foreign_key(i_schema_name, i_table_name, i_constraint_name, i_column_names, i_referenced_schema_name, i_referenced_table_name, i_referenced_column_names)`
 
 Lock-aware wrapper over `ddl_utils_lib.add_foreign_key`; adds the constraint
@@ -472,6 +473,122 @@ RETURNS void
 different lengths; a NULL array also raises `22023` (its cardinality is
 undefined), including when both arrays are NULL. Used by `add_foreign_key` and
 the `ensure_foreign_key` procedure.
+
+### `ddl_utils_lib.resolve_table_relation(i_schema_name, i_table_name, i_context, i_relation_label)`
+
+```sql
+i_schema_name    ddl_utils.non_null_text
+i_table_name     ddl_utils.non_null_text
+i_context        ddl_utils.non_null_text
+i_relation_label ddl_utils.non_null_text
+RETURNS regclass
+```
+
+`STABLE`, `SECURITY INVOKER`. Resolves `schema.table` without a `::regclass`
+cast and requires `relkind` `r`/`p`. Raises `42P01` for a missing relation and
+`42809` for a view, sequence, index or other non-table; `i_context` prefixes the
+message and `i_relation_label` names the role (for example `table` or
+`referenced table`). Used by the committed procedures and
+`validate_unique_index_for_attach`.
+
+### `ddl_utils_lib.column_not_null(i_relation, i_table_name, i_column_name, i_context)`
+
+```sql
+i_relation    regclass
+i_table_name  ddl_utils.non_null_text
+i_column_name ddl_utils.non_null_text
+i_context     ddl_utils.non_null_text
+RETURNS boolean
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns `pg_attribute.attnotnull` for a live
+column and raises `42703` when it does not exist, so a renamed or dropped column
+can never read as `NULL`. Used at every `ensure_not_null` step.
+
+### `ddl_utils_lib.assert_columns_exist(i_relation, i_schema_name, i_table_name, i_column_names, i_context)`
+
+```sql
+i_relation     regclass
+i_schema_name  ddl_utils.non_null_text
+i_table_name   ddl_utils.non_null_text
+i_column_names ddl_utils.non_empty_non_null_text_array
+i_context      ddl_utils.non_null_text
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Raises `42703` unless every named column exists on
+the relation. The definition checks join on `pg_attribute`, which would
+otherwise silently drop a missing name and report a misleading mismatch. Used by
+`ensure_foreign_key` for both column lists.
+
+### `ddl_utils_lib.constraint_state(i_relation, i_constraint_name, i_contype)`
+
+```sql
+i_relation        regclass
+i_constraint_name ddl_utils.non_null_text
+i_contype         text
+RETURNS TABLE (constraint_oid oid, convalidated boolean)
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the OID and `convalidated` flag of a named
+constraint of the given `contype` (`c` for CHECK, `f` for foreign key) on the
+relation, or no row when it does not exist. Both columns come from one
+statement, so a constraint dropped in the gap cannot look like an unvalidated
+constraint. Used by the committed procedures before and after a `COMMIT`.
+
+### `ddl_utils_lib.constraint_of_other_kind_exists(i_relation, i_constraint_name, i_contype)`
+
+```sql
+i_relation        regclass
+i_constraint_name ddl_utils.non_null_text
+i_contype         text
+RETURNS boolean
+```
+
+`STABLE`, `SECURITY INVOKER`. True when a same-named constraint of a different
+`contype` exists on the relation. The committed procedures use it to name a
+duplicate-object conflict instead of surfacing a generic `ADD CONSTRAINT`
+failure.
+
+### `ddl_utils_lib.operation_lock_key(i_context, i_keys)`
+
+```sql
+i_context ddl_utils.non_null_text
+i_keys    ddl_utils.non_empty_non_null_text_array
+RETURNS bigint
+```
+
+`STABLE`, `SECURITY INVOKER`. Builds a deterministic advisory-lock key from a
+routine context and its quoted identifier keys. The keys are sorted, so
+`ensure_foreign_key(A -> B)` and `ensure_foreign_key(B -> A)` use the same lock
+and cannot deadlock on the two table locks. Tests use it to compute the same key
+the procedure waits on.
+
+### `ddl_utils_lib.acquire_operation_lock(i_context, i_keys)`
+
+```sql
+i_context ddl_utils.non_null_text
+i_keys    ddl_utils.non_empty_non_null_text_array
+RETURNS void
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Takes the transaction-scoped advisory lock for
+`operation_lock_key(i_context, i_keys)`. A committed procedure re-takes it at the
+start of every step, because each `COMMIT` releases it; it serializes concurrent
+calls but does not block external DDL.
+
+### `ddl_utils_lib.table_lock_settings(i_schema_name, i_table_name)`
+
+```sql
+i_schema_name ddl_utils.non_null_text
+i_table_name  ddl_utils.non_null_text
+RETURNS ddl_utils.lock_settings
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the effective lock settings for a table as
+one composite, projecting the three columns by name. The lock-aware `ddl_utils`
+wrappers and the committed procedures assign it once instead of repeating the
+projection, so a reorder cannot silently swap the timeout, sleep and budget.
 
 ###
 

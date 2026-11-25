@@ -7,8 +7,6 @@ import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
@@ -141,6 +139,34 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
     }
 
     /**
+     * A constraint dropped after the add committed but before validation is
+     * re-read by name in step 2, so the call fails as {@code undefined_object}
+     * instead of validating a stale OID. A re-run recreates and validates it.
+     */
+    @Test
+    void failsClosedWhenTheConstraintIsDroppedBetweenSteps() throws Exception {
+        long key = ensureCheckConstraintLockKey(PUBLIC_SCHEMA, target());
+
+        try (AdvisoryLockStepGate gate = AdvisoryLockStepGate.start(dsl,
+                () -> openConnectionWithStatementTimeout(WORKER_STATEMENT_TIMEOUT),
+                key,
+                connection -> callEnsureCheckConstraint(connection, "positive", "value > 0"))) {
+            gate.pauseAfterStep(1);
+            assertNotValidated(PUBLIC_SCHEMA, target(), "positive");
+
+            dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + target() + " DROP CONSTRAINT positive");
+            Throwable failure = gate.resume();
+
+            assertEquals("42704", sqlState(failure),
+                    () -> "a constraint dropped between steps must fail as undefined_object: " + failure);
+        }
+
+        callEnsureCheckConstraint("positive", "value > 0");
+
+        assertValidated(PUBLIC_SCHEMA, target(), "positive");
+    }
+
+    /**
      * A violation by existing rows makes validation fail with a check
      * violation, leaving the constraint NOT VALID; the same call succeeds after
      * the data is fixed.
@@ -202,7 +228,7 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
                 () -> "the message should name the missing table: " + failure.getMessage());
     }
 
-        /**
+    /**
      * Runs the tasks on a fixed pool and waits at most 30 s for each, cancelling
      * every worker on timeout and always shutting the pool down, so a blocked
      * procedure cannot hang the build.
@@ -235,6 +261,11 @@ class EnsureCheckConstraintProcedureTest extends SingleTableTest {
 
     private void callEnsureCheckConstraint(String name, String expression) {
         Routines.ensureCheckConstraint(dsl.configuration(),
+                PUBLIC_SCHEMA, target(), name, expression);
+    }
+
+    private void callEnsureCheckConstraint(Connection connection, String name, String expression) {
+        Routines.ensureCheckConstraint(DSL.using(connection, SQLDialect.POSTGRES).configuration(),
                 PUBLIC_SCHEMA, target(), name, expression);
     }
 

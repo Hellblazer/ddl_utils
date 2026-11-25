@@ -6,8 +6,6 @@ import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
@@ -209,6 +207,72 @@ class EnsureNotNullProcedureTest extends SingleTableTest {
     }
 
     /**
+     * A relation dropped after the proof was committed but before the next step
+     * is re-resolved by name, so the call fails as {@code undefined_table}
+     * instead of reusing the dead OID and reporting a misleading missing column.
+     * The interleaving is deterministic: the procedure is paused on the advisory
+     * lock it re-acquires at the start of the next step.
+     */
+    @Test
+    void failsClosedWhenTheTableIsDroppedBetweenSteps() throws Exception {
+        dsl.execute("INSERT INTO " + PUBLIC_SCHEMA + "." + target() + " (id, note) VALUES (1, 'a')");
+        long key = ensureNotNullLockKey(PUBLIC_SCHEMA, target(), "note");
+
+        try (AdvisoryLockStepGate gate = AdvisoryLockStepGate.start(dsl,
+                () -> openConnectionWithStatementTimeout(WORKER_STATEMENT_TIMEOUT),
+                key,
+                this::callEnsureNotNull)) {
+            gate.pauseAfterStep(1);
+            assertEquals(1, notNullProofConstraintCount(PUBLIC_SCHEMA, target(), "note"),
+                    "the first step should have committed the temporary proof");
+
+            dsl.execute("DROP TABLE " + PUBLIC_SCHEMA + "." + target());
+            Throwable failure = gate.resume();
+
+            assertEquals("42P01", sqlState(failure),
+                    () -> "a relation dropped between steps must fail as undefined_table: " + failure);
+        }
+    }
+
+    /**
+     * External {@code DROP NOT NULL} after the {@code SET NOT NULL} step must
+     * not let step 4 erase the proof and return success with a nullable column.
+     * The call fails closed, leaves the proof in place, and a re-run completes
+     * the column.
+     */
+    @Test
+    void doesNotDropProofWhenTheColumnIsMadeNullableBetweenSteps() throws Exception {
+        dsl.execute("INSERT INTO " + PUBLIC_SCHEMA + "." + target() + " (id, note) VALUES (1, 'a')");
+        long key = ensureNotNullLockKey(PUBLIC_SCHEMA, target(), "note");
+
+        try (AdvisoryLockStepGate gate = AdvisoryLockStepGate.start(dsl,
+                () -> openConnectionWithStatementTimeout(WORKER_STATEMENT_TIMEOUT),
+                key,
+                this::callEnsureNotNull)) {
+            gate.pauseAfterStep(3);
+            assertNotNullable(PUBLIC_SCHEMA, target(), "note");
+            assertEquals(1, notNullProofConstraintCount(PUBLIC_SCHEMA, target(), "note"),
+                    "the validated proof should still be present before cleanup");
+
+            dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + target()
+                    + " ALTER COLUMN note DROP NOT NULL");
+            Throwable failure = gate.resume();
+
+            assertEquals("55000", sqlState(failure),
+                    () -> "a column made nullable between steps must fail closed: " + failure);
+            assertNullable(PUBLIC_SCHEMA, target(), "note");
+            assertEquals(1, notNullProofConstraintCount(PUBLIC_SCHEMA, target(), "note"),
+                    "the proof must not be dropped while the column is nullable");
+        }
+
+        callEnsureNotNull();
+
+        assertNotNullable(PUBLIC_SCHEMA, target(), "note");
+        assertEquals(0, notNullProofConstraintCount(PUBLIC_SCHEMA, target(), "note"),
+                "a re-run must complete the column and remove the proof");
+    }
+
+    /**
      * A partitioned parent is accepted and PostgreSQL recurses each step: the
      * parent and every partition end NOT NULL, no temporary proof is left on
      * either, and a second call is a no-op.
@@ -349,7 +413,12 @@ class EnsureNotNullProcedureTest extends SingleTableTest {
         Routines.ensureNotNull(dsl.configuration(), PUBLIC_SCHEMA, table, column);
     }
 
-        /**
+    private void callEnsureNotNull(Connection connection) {
+        Routines.ensureNotNull(DSL.using(connection, SQLDialect.POSTGRES).configuration(),
+                PUBLIC_SCHEMA, target(), "note");
+    }
+
+    /**
      * Runs the tasks on a fixed pool and waits at most 30 s for each, cancelling
      * every worker on timeout and always shutting the pool down, so a blocked
      * procedure cannot hang the build.

@@ -9,7 +9,8 @@ import java.sql.Connection;
 
 import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.DatabaseLockSettings.DATABASE_LOCK_SETTINGS;
 import static io.github.eyupmiduck.ddlutils.jooq.ddl_utils.tables.GetDatabaseLockSettings.GET_DATABASE_LOCK_SETTINGS;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Verifies {@code ddl_utils.database_lock_settings} and its accessors: the single row is

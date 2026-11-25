@@ -40,25 +40,11 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
-    -- Resolve the table without a ::regclass cast, so a missing table is a
-    -- controlled 42P01 rather than a raw "relation does not exist" cast error.
-    l_table_oid := pg_catalog.to_regclass(
-            pg_catalog.format('%I.%I', i_schema_name, i_table_name));
-
-    SELECT c.relkind::text
-    INTO l_relkind
-    FROM pg_catalog.pg_class AS c
-    WHERE c.oid = l_table_oid;
-
-    IF l_relkind IS NULL THEN
-        RAISE EXCEPTION '%: table %.% does not exist', i_context, i_schema_name, i_table_name
-            USING ERRCODE = '42P01';
-    END IF;
-
-    IF l_relkind NOT IN ('r', 'p') THEN
-        RAISE EXCEPTION '%: %.% is not a table', i_context, i_schema_name, i_table_name
-            USING ERRCODE = '42809';
-    END IF;
+    l_table_oid := ddl_utils_lib.resolve_table_relation(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_context => i_context,
+            i_relation_label => 'table');
 
     l_index_oid := pg_catalog.to_regclass(
             pg_catalog.format('%I.%I', i_schema_name, i_index_name));
