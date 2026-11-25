@@ -439,9 +439,14 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
                 + " ADD CONSTRAINT fk_parent FOREIGN KEY (parent_id) REFERENCES "
                 + PUBLIC_SCHEMA + "." + REFERENCED + " (id)");
 
-        assertSqlState("42703", () -> Routines.ensureForeignKey(dsl.configuration(),
-                PUBLIC_SCHEMA, TARGET, "fk_parent", new String[]{"missing"}, PUBLIC_SCHEMA, REFERENCED,
-                new String[]{"id"}));
+        DataAccessException failure = assertThrows(DataAccessException.class,
+                () -> Routines.ensureForeignKey(dsl.configuration(),
+                        PUBLIC_SCHEMA, TARGET, "fk_parent", new String[]{"missing"}, PUBLIC_SCHEMA, REFERENCED,
+                        new String[]{"id"}));
+
+        assertEquals("42703", failure.sqlState());
+        assertTrue(failure.getMessage().contains("missing"),
+                () -> "the message should name the missing column: " + failure.getMessage());
     }
 
     /**
@@ -454,9 +459,14 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
                 + " ADD CONSTRAINT fk_parent FOREIGN KEY (parent_id) REFERENCES "
                 + PUBLIC_SCHEMA + "." + REFERENCED + " (id)");
 
-        assertSqlState("42703", () -> Routines.ensureForeignKey(dsl.configuration(),
-                PUBLIC_SCHEMA, TARGET, "fk_parent", new String[]{"parent_id"}, PUBLIC_SCHEMA, REFERENCED,
-                new String[]{"missing"}));
+        DataAccessException failure = assertThrows(DataAccessException.class,
+                () -> Routines.ensureForeignKey(dsl.configuration(),
+                        PUBLIC_SCHEMA, TARGET, "fk_parent", new String[]{"parent_id"},
+                        PUBLIC_SCHEMA, REFERENCED, new String[]{"missing"}));
+
+        assertEquals("42703", failure.sqlState());
+        assertTrue(failure.getMessage().contains("missing"),
+                () -> "the message should name the missing column: " + failure.getMessage());
     }
 
     /**

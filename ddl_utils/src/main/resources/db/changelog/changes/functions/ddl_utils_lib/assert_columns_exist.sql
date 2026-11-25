@@ -11,20 +11,27 @@ CREATE OR REPLACE FUNCTION ddl_utils_lib.assert_columns_exist(
     SECURITY INVOKER
 AS
 $$
+DECLARE
+    l_missing text[];
 BEGIN
     -- A named column that does not resolve must fail loudly. Otherwise a
     -- pg_attribute join silently drops it and reports a misleading definition
-    -- mismatch instead of the missing column.
-    IF (SELECT pg_catalog.count(*)
-        FROM pg_catalog.unnest(i_column_names) AS t(name)
-                 JOIN pg_catalog.pg_attribute AS a
-                      ON a.attrelid = i_relation
-                          AND a.attname = t.name
-                          AND a.attnum > 0
-                          AND NOT a.attisdropped)
-        <> pg_catalog.cardinality(i_column_names) THEN
-        RAISE EXCEPTION '%: a column of %.% does not exist',
-            i_context, i_schema_name, i_table_name
+    -- mismatch instead of the missing column. Collect every unmatched name so a
+    -- multi-column call names the offending columns, not just the relation.
+    SELECT pg_catalog.array_agg(t.name ORDER BY t.name)
+    INTO l_missing
+    FROM pg_catalog.unnest(i_column_names) AS t(name)
+    WHERE NOT EXISTS (SELECT 1
+                      FROM pg_catalog.pg_attribute AS a
+                      WHERE a.attrelid = i_relation
+                        AND a.attname = t.name
+                        AND a.attnum > 0
+                        AND NOT a.attisdropped);
+
+    IF l_missing IS NOT NULL THEN
+        RAISE EXCEPTION '%: column(s) % of %.% do not exist',
+            i_context, pg_catalog.array_to_string(l_missing, ', '),
+            i_schema_name, i_table_name
             USING ERRCODE = '42703';
     END IF;
 END;

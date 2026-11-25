@@ -193,6 +193,10 @@ final class AdvisoryLockStepGate implements AutoCloseable {
 
     @Override
     public void close() {
+        // Abort the worker first: closing its connection rolls back the open
+        // step, so releasing the gates afterwards cannot let a test that is
+        // already unwinding run and commit one more DDL step.
+        closeQuietly(worker);
         if (currentGate != null) {
             try {
                 unlock(currentGate);
@@ -205,7 +209,6 @@ final class AdvisoryLockStepGate implements AutoCloseable {
             closeQuietly(gate);
         }
         gates.clear();
-        closeQuietly(worker);
         closeQuietly(holder);
         executor.shutdownNow();
     }
@@ -237,6 +240,12 @@ final class AdvisoryLockStepGate implements AutoCloseable {
     }
 
     private void awaitLockState(int pid, boolean granted, String message) throws InterruptedException {
+        // The single bigint-key form stores the lock as objsubid = 1 with the
+        // key split across classid (high 32 bits) and objid (low 32 bits).
+        // Match the key itself, so a session waiting on a different advisory
+        // lock cannot satisfy this gate.
+        long classId = key >>> 32;
+        long objectId = key & 0xFFFFFFFFL;
         for (int attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
             Object found = monitor.fetchValue("""
                     SELECT EXISTS (
@@ -244,14 +253,22 @@ final class AdvisoryLockStepGate implements AutoCloseable {
                         FROM pg_locks
                         WHERE locktype = 'advisory'
                           AND objsubid = 1
+                          AND classid = ?::oid
+                          AND objid = ?::oid
                           AND pid = ?
                           AND granted = ?
                     )
-                    """, pid, granted);
+                    """, classId, objectId, pid, granted);
             if (Boolean.TRUE.equals(found)) {
                 return;
             }
             failIfWorkerFinished(pid, message);
+            if (pid != workerPid && !granted) {
+                // A gate expected to queue is granted immediately when the
+                // worker dies; surface the worker's real failure instead of
+                // spinning to the timeout.
+                failIfWorkerFinished(workerPid, message);
+            }
             Thread.sleep(POLL_INTERVAL_MILLIS);
         }
         throw new IllegalStateException(message
