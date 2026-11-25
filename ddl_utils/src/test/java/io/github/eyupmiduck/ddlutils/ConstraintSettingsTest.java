@@ -51,6 +51,15 @@ class ConstraintSettingsTest extends PostgresTestBase {
                 failure = e;
             }
         }
+        try {
+            clearTableLockSettings(PUBLIC_SCHEMA, REFERENCED);
+        } catch (RuntimeException e) {
+            if (failure != null) {
+                failure.addSuppressed(e);
+            } else {
+                failure = e;
+            }
+        }
         if (failure != null) {
             throw failure;
         }
@@ -130,6 +139,24 @@ class ConstraintSettingsTest extends PostgresTestBase {
         setTableLockSettings(PUBLIC_SCHEMA, TARGET, 100, 100, 300);
 
         assertGivesUpWhileTableLocked(TARGET, "ACCESS EXCLUSIVE", 2000,
+                () -> Routines.addForeignKey(dsl.configuration(), PUBLIC_SCHEMA, TARGET, "fk_parent",
+                        new String[]{"parent_id"}, PUBLIC_SCHEMA, REFERENCED, new String[]{"id"}));
+
+        assertFalse(constraintExists(PUBLIC_SCHEMA, TARGET, "fk_parent"),
+                "a call that gave up must not have created the foreign key");
+    }
+
+    /**
+     * add_foreign_key honours the referenced table's lock settings too: the
+     * referenced table's budget is far below the database default, so an ACCESS
+     * EXCLUSIVE lock on it makes the call give up quickly even though the
+     * source table still uses the default settings.
+     */
+    @Test
+    void addForeignKeyUsesReferencedTableLockSettings() throws Exception {
+        setTableLockSettings(PUBLIC_SCHEMA, REFERENCED, 100, 100, 300);
+
+        assertGivesUpWhileTableLocked(REFERENCED, "ACCESS EXCLUSIVE", 2000,
                 () -> Routines.addForeignKey(dsl.configuration(), PUBLIC_SCHEMA, TARGET, "fk_parent",
                         new String[]{"parent_id"}, PUBLIC_SCHEMA, REFERENCED, new String[]{"id"}));
 

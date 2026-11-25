@@ -128,6 +128,15 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-ddl_utils_lib.execute_with_lock_retry" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/execute_with_lock_retry.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/execute_with_lock_retry-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-ddl_utils_lib.has_top_level_comma" author="lee.horner" dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/ddl_utils_lib/has_top_level_comma.sql" relativeToChangelogFile="true"/>
         <rollback>
@@ -414,6 +423,16 @@
         <createProcedure path="functions/ddl_utils_lib/add_foreign_key.sql" relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/ddl_utils_lib/add_foreign_key-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.lock_foreign_key_tables" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/lock_foreign_key_tables.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/lock_foreign_key_tables-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>

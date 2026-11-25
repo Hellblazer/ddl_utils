@@ -47,15 +47,19 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
       the lock-aware DDL wrappers (columns, constraints and tables) that resolve
       their settings through `get_lock_settings`; `ddl_utils_lib` holds the
       generic DDL helpers of the same names that take the settings explicitly,
-      with `alter_table` as the internal runner. Expose and lock-wrap only
-      `ALTER TABLE` work that blocks concurrent DML (it takes `ACCESS
-      EXCLUSIVE`, or `SHARE ROW EXCLUSIVE` for `add_foreign_key`); an operation
-      that takes only `SHARE UPDATE EXCLUSIVE` (for example `VALIDATE
+      with `execute_with_lock_retry` as the internal runner (`alter_table` and
+      `lock_foreign_key_tables` build the statement it runs). Expose and
+      lock-wrap only `ALTER TABLE` work that blocks concurrent DML (it takes
+      `ACCESS EXCLUSIVE`, or `SHARE ROW EXCLUSIVE` for `add_foreign_key`); an
+      operation that takes only `SHARE UPDATE EXCLUSIVE` (for example `VALIDATE
       CONSTRAINT`) needs no lock-aware wrapper and is a `ddl_utils_lib` helper
-      only. A function must make a single `ALTER TABLE` call because it
-      cannot commit mid-call; multi-step sequences (for example
-      check-validate-set NOT NULL) are implemented as procedures in the
-      `ddl_utils` schema that commit between steps (see the PL/pgSQL section and
+      only. A function must make a single `ALTER TABLE` call because it cannot
+      commit mid-call, but it may take the table locks it needs first: for
+      `ADD FOREIGN KEY`, `lock_foreign_key_tables` pre-locks both the
+      referencing and referenced tables in a deterministic order, each with its
+      own settings. Multi-step sequences (for example check-validate-set NOT
+      NULL) are implemented as procedures in the `ddl_utils` schema that commit
+      between steps (see the PL/pgSQL section and
       `changes/procedures/README.md`).
     - jOOQ classes are generated at build time into
       `target/generated-sources/jooq` by
@@ -160,11 +164,20 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - **A procedure orchestrates; it does not implement DDL or locking.** Each step
   calls a purpose-named single-call function (preferably the matching
   `ddl_utils_lib` helper); a procedure never calls `ddl_utils_lib.alter_table`
-  directly and never contains a `lock_timeout`, retry, sleep or spin loop. A
-  procedure owns only the `COMMIT` boundaries and the idempotency checks, reads
-  the settings once via `ddl_utils.get_lock_settings`, and must be safely
-  re-runnable after a partial failure (each step tests the catalog before
-  acting). See `changes/procedures/README.md`.
+  or `ddl_utils_lib.execute_with_lock_retry` directly and never contains a
+  `lock_timeout`, retry, sleep or spin loop. A procedure owns only the `COMMIT`
+  boundaries and the idempotency checks, reads the settings once via
+  `ddl_utils_lib.table_lock_settings`, and must be safely re-runnable after a
+  partial failure (each step tests the catalog before acting). For a foreign
+  key it reads both tables' settings and calls `lock_foreign_key_tables`; see
+  `changes/procedures/README.md`.
+- **The lock settings bound lock acquisition, not execution.** Once a statement
+  has acquired its locks it may run for as long as it needs: long online
+  `ALTER TABLE` and `VALIDATE CONSTRAINT` scans are intentional. Do not add a
+  `statement_timeout`, an abort, or a commit-separated workaround just to
+  shorten a long statement, and do not treat `i_statement_duration` as a limit
+  on how long the statement may run — it is the retry budget for acquiring the
+  lock. Callers that need a hard cap set `statement_timeout` themselves.
 - Procedures must run in autocommit: `CALL` inside a client transaction block
   fails with `invalid transaction termination`.
 - Prefix input arguments with `i_`, output arguments with `o_`, and local
@@ -217,7 +230,9 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - Never build dynamic SQL by concatenating values. Quote identifiers with
   `format('... %I ...', ...)` and literals with `%L`, and reject input that
   cannot be safely parameterized (for example an `ALTER TABLE` fragment with
-  multiple statements or comments).
+  multiple statements or comments). `ddl_utils_lib.execute_with_lock_retry` is
+  the only routine that executes dynamic SQL; the statement it runs is built by
+  `alter_table` or `lock_foreign_key_tables` from validated identifiers.
 - Schema-qualify objects or set `search_path` explicitly so a routine behaves
   the same regardless of the caller's `search_path`.
 - Routines run inside the caller's transaction: use `SET LOCAL` for

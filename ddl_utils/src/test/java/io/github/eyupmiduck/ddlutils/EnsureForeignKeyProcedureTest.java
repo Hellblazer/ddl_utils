@@ -61,6 +61,26 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
     }
 
     /**
+     * The add step honours the referenced table's lock settings: with the
+     * referenced table's budget far below the database default, an ACCESS
+     * EXCLUSIVE lock on it makes the CALL give up quickly even though the
+     * source table still uses the default settings.
+     */
+    @Test
+    void addStepUsesReferencedTableLockSettings() throws Exception {
+        setTableLockSettings(PUBLIC_SCHEMA, REFERENCED, 100, 100, 300);
+        try {
+            assertGivesUpWhileTableLocked(REFERENCED, "ACCESS EXCLUSIVE", 2000,
+                    () -> callEnsureForeignKey("fk_parent"));
+
+            assertFalse(constraintExists(PUBLIC_SCHEMA, TARGET, "fk_parent"),
+                    "a call that gave up must not have created the foreign key");
+        } finally {
+            clearTableLockSettings(PUBLIC_SCHEMA, REFERENCED);
+        }
+    }
+
+    /**
      * The created foreign key has the requested source/referenced tables and
      * column mapping and the PostgreSQL-default referential actions and
      * deferrability, not just any constraint named {@code fk_parent}. The

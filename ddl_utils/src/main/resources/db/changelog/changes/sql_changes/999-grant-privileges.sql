@@ -62,6 +62,20 @@ GRANT EXECUTE ON FUNCTION ddl_utils_lib.alter_table(
     ddl_utils.non_negative_integer,
     ddl_utils.non_negative_integer
     ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.execute_with_lock_retry(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.execute_with_lock_retry(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer
+    ) TO ddl_utils_caller;
 REVOKE EXECUTE ON FUNCTION ddl_utils_lib.add_column(
     ddl_utils.non_null_text,
     ddl_utils.non_null_text,
@@ -641,6 +655,34 @@ GRANT EXECUTE ON FUNCTION ddl_utils_lib.add_foreign_key(
     ddl_utils.non_null_text,
     ddl_utils.non_null_text,
     ddl_utils.non_empty_non_null_text_array,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.lock_foreign_key_tables(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.lock_foreign_key_tables(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_negative_integer,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
     ddl_utils.non_negative_integer,
     ddl_utils.non_negative_integer,
     ddl_utils.non_negative_integer
