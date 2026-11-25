@@ -59,9 +59,30 @@ BEGIN
     l_referenced_columns := ddl_utils_lib.quote_identifiers(
             i_values => i_referenced_column_names);
 
+    -- ADD FOREIGN KEY takes SHARE ROW EXCLUSIVE on both tables. Pre-lock both in
+    -- a deterministic order so reciprocal keys cannot deadlock and so the lock
+    -- is acquired before the ALTER builds its statement. This helper has one
+    -- settings set, so it applies the same settings to both tables; the
+    -- ddl_utils.add_foreign_key wrapper resolves each table's own settings and
+    -- may already hold both locks, making this call a no-op for direct callers
+    -- that went through the wrapper.
+    PERFORM ddl_utils_lib.lock_foreign_key_tables(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_lock_mode => 'share row exclusive',
+            i_ddl_lock_timeout => i_ddl_lock_timeout,
+            i_sleep_time => i_sleep_time,
+            i_statement_duration => i_statement_duration,
+            i_referenced_schema_name => i_referenced_schema_name,
+            i_referenced_table_name => i_referenced_table_name,
+            i_referenced_lock_mode => 'share row exclusive',
+            i_referenced_ddl_lock_timeout => i_ddl_lock_timeout,
+            i_referenced_sleep_time => i_sleep_time,
+            i_referenced_statement_duration => i_statement_duration
+            );
+
     -- NOT VALID makes the constraint metadata-only (no scan of either table);
-    -- call validate_constraint separately to enforce it. Referencing a foreign
-    -- key takes SHARE ROW EXCLUSIVE on both tables, not ACCESS EXCLUSIVE.
+    -- call validate_constraint separately to enforce it.
     PERFORM ddl_utils_lib.alter_table(
             i_schema_name => i_schema_name,
             i_table_name => i_table_name,
@@ -81,5 +102,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION ddl_utils_lib.add_foreign_key IS
-    'Adds a foreign key as NOT VALID, taking the lock settings explicitly. The '
-        'constraint name must be at most 63 bytes.';
+    'Adds a foreign key as NOT VALID, taking the lock settings explicitly. '
+        'Pre-locks both tables in a deterministic order with the same settings '
+        '(use ddl_utils.add_foreign_key for per-table settings). The constraint '
+        'name must be at most 63 bytes.';

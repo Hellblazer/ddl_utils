@@ -29,10 +29,12 @@ include:
 # --fail-on argument in pom.xml), so an included warning rule is reported but
 # does not by itself fail the build.
 rules:
-  # The two helpers are the deliberate dynamic-SQL boundary: the structured
-  # wrappers build a validated fragment and alter_table runs it.
+  # The internal runner is the deliberate dynamic-SQL boundary: the structured
+  # helpers build the statement from validated identifiers/fragments, and
+  # execute_with_lock_retry runs it. add_identity builds and runs its own max()
+  # query so the identity sequence starts above the existing values.
   routine-dynamic-sql:
     options:
       allowedRoutines:
-        - ddl_utils_lib.alter_table
+        - ddl_utils_lib.execute_with_lock_retry
         - ddl_utils_lib.add_identity

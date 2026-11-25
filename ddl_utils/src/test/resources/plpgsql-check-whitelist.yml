@@ -6,14 +6,16 @@
 # value). A finding with no match fails the test, and an entry that matches no
 # finding is reported as stale and also fails.
 - schema: ddl_utils_lib
-  function: alter_table
+  function: execute_with_lock_retry
   level: security
   statement: EXECUTE
   message: text type variable is not sanitized
   reason: >-
-    The internal runner executes a caller-provided ALTER TABLE fragment and is
-    SECURITY INVOKER, so a caller already holds the privileges the fragment
-    would use. The dynamic SQL is deliberate; see alter_table.sql.
+    The internal runner executes a statement built by alter_table (from a
+    validated fragment) or lock_foreign_key_tables (from validated identifiers
+    and an allow-listed lock mode). It is SECURITY INVOKER, so a caller already
+    holds the privileges the statement would use. The dynamic SQL is deliberate;
+    see execute_with_lock_retry.sql.
 
 - schema: ddl_utils_lib
   function: quote_identifiers

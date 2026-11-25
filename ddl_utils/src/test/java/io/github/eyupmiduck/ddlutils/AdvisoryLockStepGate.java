@@ -42,6 +42,7 @@ final class AdvisoryLockStepGate implements AutoCloseable {
     private final List<Connection> gates = new ArrayList<>();
     private Connection currentGate;
     private Future<Throwable> result;
+
     private AdvisoryLockStepGate(DSLContext monitor, ConnectionFactory connections, long key,
                                  Connection holder, Connection worker) throws SQLException {
         this.monitor = monitor;

@@ -83,7 +83,15 @@ Rules:
 - Every change needs a working rollback.
 - Keep changesets small, focused, and safe to deploy against a live database (see the locking and migration guidance in
   `AGENTS.md`).
-- Do not modify an already-deployed changeset. Add a new one instead.
+- The changelog is deployed. Every released schema changeset is frozen: never
+  edit its id, SQL, rollback or attributes; add a new changeset for schema work.
+- Routine, procedure and trigger changesets use `runOnChange`: edit the object
+  file and its paired rollback in place. Keep the changeset
+  id/path/attributes fixed and do not add versioned copies. A signature change
+  adds `DROP FUNCTION/PROCEDURE IF EXISTS <old signature>;` before the new
+  `CREATE OR REPLACE`, plus a new grant changeset (see `AGENTS.md`).
+- A published baseline is immutable. Do not disable `BaselineUpgradeTest` to
+  edit one; publish a replacement release instead.
 - Lint changelog SQL before submitting:
 
   ```sh

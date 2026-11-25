@@ -61,6 +61,48 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
     }
 
     /**
+     * A self-referencing key exercises the single-table branch of
+     * {@code lock_foreign_key_tables}: the add step requests SHARE ROW
+     * EXCLUSIVE on both sides, and the validate step requests SHARE UPDATE
+     * EXCLUSIVE on the source plus SHARE ROW EXCLUSIVE on the referenced side,
+     * which must escalate to one SHARE ROW EXCLUSIVE lock on the same table.
+     */
+    @Test
+    void addsAndValidatesSelfReferencingForeignKey() {
+        String self = "ensure_foreign_key_self";
+        createTestTable(self, "id int PRIMARY KEY, parent_id int");
+        try {
+            Routines.ensureForeignKey(dsl.configuration(),
+                    PUBLIC_SCHEMA, self, "fk_self", new String[]{"parent_id"},
+                    PUBLIC_SCHEMA, self, new String[]{"id"});
+
+            assertValidated(PUBLIC_SCHEMA, self, "fk_self");
+        } finally {
+            dropTestTable(self);
+        }
+    }
+
+    /**
+     * The add step honours the referenced table's lock settings: with the
+     * referenced table's budget far below the database default, an ACCESS
+     * EXCLUSIVE lock on it makes the CALL give up quickly even though the
+     * source table still uses the default settings.
+     */
+    @Test
+    void addStepUsesReferencedTableLockSettings() throws Exception {
+        setTableLockSettings(PUBLIC_SCHEMA, REFERENCED, 100, 100, 300);
+        try {
+            assertGivesUpWhileTableLocked(REFERENCED, "ACCESS EXCLUSIVE", 2000,
+                    () -> callEnsureForeignKey("fk_parent"));
+
+            assertFalse(constraintExists(PUBLIC_SCHEMA, TARGET, "fk_parent"),
+                    "a call that gave up must not have created the foreign key");
+        } finally {
+            clearTableLockSettings(PUBLIC_SCHEMA, REFERENCED);
+        }
+    }
+
+    /**
      * The created foreign key has the requested source/referenced tables and
      * column mapping and the PostgreSQL-default referential actions and
      * deferrability, not just any constraint named {@code fk_parent}. The

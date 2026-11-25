@@ -2,9 +2,8 @@
 
 ## Supported versions
 
-ddl_utils is pre-1.0 and under active development. Security fixes are applied
-to the `main` branch and to the latest tagged release, if one exists. Older
-versions are not supported.
+ddl_utils is deployed and released under 1.x. Security fixes are applied to the
+`main` branch and to the latest tagged release. Older versions are not supported.
 
 ## Reporting a vulnerability
 

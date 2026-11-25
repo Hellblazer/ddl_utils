@@ -8,13 +8,17 @@ what makes a long verification scan tolerable.
 
 One procedure per `.sql` file under `procedures/<schema>/`, named `snake_case`
 without an `NNN-` prefix. `changes/procedures.xml` holds one
-`procedure-<schema>.<name>` `runOnChange` changeset per procedure (a
-`createProcedure` plus its rollback); `changes/procedures-rollback/<schema>/`
-holds the rollback bodies.
+`procedure-<schema>.<name>` changeset per procedure (a `createProcedure` plus
+its rollback); `changes/procedures-rollback/<schema>/` holds the rollback
+bodies.
 
-Nothing is deployed yet, so a signature change is made in place in the procedure
-file and its rollback. Do not add `DROP PROCEDURE IF EXISTS <old signature>`
-guards or compatibility changesets.
+The changelog is deployed. Schema changesets are frozen, but procedure files are
+edited in place: `runOnChange` re-applies the changed body on upgrade. Keep the
+changeset id/path/attributes fixed and do not add versioned files. A signature
+change adds `DROP PROCEDURE IF EXISTS <old signature>;` before the new
+`CREATE OR REPLACE`, updates the paired rollback, and adds or updates the grant
+in a new grant changeset. `RoutineSignatureTest` fails if a routine name has
+more than one signature unless an intentional overload is allow-listed.
 
 ## The orchestration rule
 
@@ -25,10 +29,12 @@ A procedure **orchestrates**; it does not implement DDL or locking.
   `validate_constraint`, `drop_constraint`, `add_foreign_key`, `set_not_null`,
   …). If a needed single-call operation has no helper, add the helper first
   rather than inlining a fragment.
-- A procedure **never** calls `ddl_utils_lib.alter_table` directly, and never
-  contains a `lock_timeout`, retry, sleep or spin loop. All of that lives in the
-  function layer (`ddl_utils_lib.alter_table` and the helpers built on it), so a
-  procedure reads as a sequence of named operations.
+- A procedure **never** calls `ddl_utils_lib.alter_table` or
+  `ddl_utils_lib.execute_with_lock_retry` directly, and never contains a
+  `lock_timeout`, retry, sleep or spin loop. All of that lives in the function
+  layer (`execute_with_lock_retry`, `alter_table`, `lock_foreign_key_tables`
+  and the helpers built on them), so a procedure reads as a sequence of named
+  operations.
 - The only things a procedure owns are the `COMMIT` boundaries and the
   idempotency checks that decide whether each step still needs to run.
 
@@ -66,9 +72,10 @@ Findings that the pattern rests on:
   `SET LOCAL lock_timeout` and its exception/retry loop run correctly inside
   that step's transaction, and `lock_timeout` is restored before the next
   `COMMIT`.
-- **Settings are read once.** `ddl_utils.get_lock_settings` is `STABLE`; the
-  values are captured at the top of the call and reused across steps. They need
-  not be re-read after a `COMMIT`.
+- **Settings are read once.** `ddl_utils_lib.table_lock_settings` is `STABLE`;
+  the values are captured at the top of the call and reused across steps. They
+  need not be re-read after a `COMMIT`. `ensure_foreign_key` reads one settings
+  set per table, because the add and validate steps lock both tables.
 - **`55P03` propagates by itself.** When a step cannot take its lock within the
   budget, the function raises `55P03`; it travels out of the procedure unchanged
   and leaves the transaction in a state the client can simply retry. The
@@ -230,10 +237,14 @@ i_referenced_column_names ddl_utils.non_empty_non_null_text_array
 Same two committed steps as `ensure_check_constraint`, for a foreign key:
 `ddl_utils_lib.add_foreign_key` (NOT VALID, `SHARE ROW EXCLUSIVE` on both
 tables) then `ddl_utils_lib.validate_constraint`. Idempotent and recoverable the
-same way. The constraint name must be at most 63 bytes (`22023`), as for
-`ensure_check_constraint`; the source and referenced relations must be ordinary
-or partitioned tables (`relkind` `r`/`p`), otherwise a missing relation raises
-`42P01` and a non-table `42809`.
+same way. The procedure reads both tables' effective settings and, before each
+step, calls `lock_foreign_key_tables` so both tables are locked in a
+deterministic order with their own budgets: the add step uses `SHARE ROW
+EXCLUSIVE` on both, and the validate step uses `SHARE UPDATE EXCLUSIVE` on the
+source and `SHARE ROW EXCLUSIVE` on the referenced table. The constraint name
+must be at most 63 bytes (`22023`), as for `ensure_check_constraint`; the source
+and referenced relations must be ordinary or partitioned tables (`relkind`
+`r`/`p`), otherwise a missing relation raises `42P01` and a non-table `42809`.
 
 Even a `NOT VALID` foreign key requires the referenced columns to be covered by
 a unique index or constraint (a bare unique index is accepted). The procedure
@@ -245,9 +256,9 @@ that references different columns or a different table is not silently accepted:
 the procedure compares `confrelid` and the `conkey`/`confkey` mapping as a
 multiset (PostgreSQL may reorder the keys) and raises `42710` when the definition
 differs. The mismatch message includes the stored definition. A
-transaction-scoped advisory lock is keyed on the sorted pair of relations, so
-reciprocal `ensure_foreign_key(A -> B)` and `(B -> A)` calls serialize instead of
-acquiring the two table locks in opposite order.
+transaction-scoped advisory lock is keyed on the sorted pair of relations, and
+`lock_foreign_key_tables` takes the actual table locks in OID order, so
+reciprocal `ensure_foreign_key(A -> B)` and `(B -> A)` calls cannot deadlock.
 
 After the `COMMIT`, step 2 re-takes the lock and re-resolves both relations and
 the constraint: a relation dropped in the gap raises `42P01`, a vanished

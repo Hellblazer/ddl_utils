@@ -4,20 +4,24 @@ One function per `.sql` file, grouped by the schema that owns it:
 
 - `ddl_utils/` — lock-settings tables/accessors and the lock-aware DDL wrappers.
 - `ddl_utils_lib/` — generic DDL helpers that take the lock settings explicitly.
-  `alter_table` is the internal runner they build on (the only dynamic-SQL
-  boundary); prefer the structured helpers, which assemble the fragment from
-  validated identifiers. A helper whose statement takes only `SHARE UPDATE
-  EXCLUSIVE` and therefore never blocks DML lives here only (`validate_constraint`
-  and `has_top_level_comma`).
+  `execute_with_lock_retry` is the internal runner they build on (the only
+  dynamic-SQL boundary); `alter_table` and `lock_foreign_key_tables` build the
+  statement it runs. Prefer the structured helpers, which assemble the fragment
+  from validated identifiers. A helper whose statement takes only `SHARE UPDATE
+  EXCLUSIVE` and therefore never blocks DML lives here only (`validate_constraint` and `has_top_level_comma`).
 
-`changes/functions.xml` loads them one `createProcedure` per `runOnChange`
-changeset; the matching drop lives in `changes/functions-rollback/`. Every
+`changes/functions.xml` loads them one `createProcedure` per changeset; the
+matching drop lives in `changes/functions-rollback/`. Every
 routine is `SECURITY INVOKER` except the setters/clearers, which are
 `SECURITY DEFINER` (callers only have `SELECT` on the settings tables).
 
-Nothing is deployed yet, so a signature change is made in place in the function
-file and its rollback. Do not add `DROP FUNCTION IF EXISTS <old signature>`
-guards or compatibility changesets.
+The changelog is deployed. Schema changesets are frozen, but routine files are
+edited in place: `runOnChange` re-applies the changed body on upgrade. Keep the
+changeset id/path/attributes fixed and do not add versioned files. A signature
+change adds `DROP FUNCTION IF EXISTS <old signature>;` before the new
+`CREATE OR REPLACE`, updates the paired rollback, and adds or updates the grant
+in a new grant changeset. `RoutineSignatureTest` fails if a routine name has
+more than one signature unless an intentional overload is allow-listed.
 
 Each routine file ends with a `COMMENT ON FUNCTION` / `COMMENT ON PROCEDURE`
 for the routine it creates, using the short form (`schema.name`, no argument
@@ -282,7 +286,8 @@ constraint `NOT VALID`.
 `ddl_utils.add_foreign_key(i_schema_name, i_table_name, i_constraint_name, i_column_names, i_referenced_schema_name, i_referenced_table_name, i_referenced_column_names)`
 
 Lock-aware wrapper over `ddl_utils_lib.add_foreign_key`; adds the constraint
-`NOT VALID` and resolves only the referencing table's settings.
+`NOT VALID`, resolves both tables' settings, and pre-locks both in a
+deterministic order.
 
 ### `ddl_utils.drop_constraint(i_schema_name, i_table_name, i_constraint_name)`
 
@@ -314,10 +319,9 @@ over the matching `ddl_utils_lib` helpers (same names). `add_check_constraint`
 and `add_foreign_key` emit `NOT VALID` (metadata-only); call
 `ddl_utils_lib.validate_constraint` separately to enforce the constraint
 against existing rows (it scans but takes only `SHARE UPDATE EXCLUSIVE`, so it
-has no lock-aware wrapper). `ddl_utils.add_foreign_key` resolves only the altered (referencing) table's lock settings,
-although `ADD FOREIGN KEY` also takes
-`SHARE ROW EXCLUSIVE` on the referenced table; an override for the referenced
-table is not honoured. The two `*_using_index` helpers attach a pre-built
+has no lock-aware wrapper). `ddl_utils.add_foreign_key` resolves and honours
+both the referencing and referenced tables' lock settings and pre-locks both in
+a deterministic order. The two `*_using_index` helpers attach a pre-built
 unique index (`CREATE UNIQUE INDEX CONCURRENTLY`), which is metadata-only when
 the index is valid. `ddl_utils.rename_table` also moves the table's lock
 settings to the new name in one statement (`ddl_utils.move_table_lock_settings`);
@@ -340,13 +344,33 @@ i_statement_duration    ddl_utils.non_negative_integer
 RETURNS void
 ```
 
-**Internal runner.** `SECURITY INVOKER`. Runs
-`ALTER TABLE <schema>.<table> <fragment>` with the given lock/retry settings,
-restoring the caller's `lock_timeout` on success. Rejects a blank fragment and
+**Internal runner.** `SECURITY INVOKER`. Builds
+`ALTER TABLE <schema>.<table> <fragment>` and runs it through
+`execute_with_lock_retry`, which applies the bounded lock/retry settings and
+restores the caller's `lock_timeout` on success. Rejects a blank fragment and
 one containing `;`, `--`, `/*` or `*/` outside quoted text (a best-effort
-guard; the caller already holds the privileges the fragment uses). This is the
-only routine that executes dynamic SQL; prefer the structured helpers, which
-build the fragment from validated identifiers/values.
+guard; the caller already holds the privileges the fragment uses). Prefer the
+structured helpers, which build the fragment from validated identifiers/values.
+
+###
+`ddl_utils_lib.execute_with_lock_retry(i_statement, i_context, i_ddl_lock_timeout, i_sleep_time, i_statement_duration)`
+
+```sql
+i_statement          ddl_utils.non_null_text
+i_context            ddl_utils.non_null_text
+i_ddl_lock_timeout   ddl_utils.non_negative_integer
+i_sleep_time         ddl_utils.non_negative_integer
+i_statement_duration ddl_utils.non_negative_integer
+RETURNS void
+```
+
+**Internal runner.** `SECURITY INVOKER`. Executes one statement built by
+`alter_table` or `lock_foreign_key_tables` with a bounded per-attempt
+`lock_timeout` and the retry budget `i_statement_duration`, restoring the
+caller's `lock_timeout` on success. It is the only routine that executes
+dynamic SQL. The budget bounds lock acquisition only; once the statement has
+its locks it may run for as long as it needs. `i_context` prefixes the `55P03`
+error raised when the budget is exhausted.
 
 ### `ddl_utils_lib.has_unquoted_token(i_value, i_tokens, i_top_level_only)`
 
@@ -850,9 +874,40 @@ settings                   (see above)
 RETURNS void
 ```
 
-`SECURITY INVOKER`. Adds a foreign key as `NOT VALID` (no scan; takes `SHARE
-ROW EXCLUSIVE` on both tables). The two column arrays must be non-empty and of
-equal length; blank names are rejected with `22023`.
+`SECURITY INVOKER`. Pre-locks the referencing and referenced tables with the
+same settings (this helper has one settings set; use
+`ddl_utils.add_foreign_key` for per-table settings), then adds a foreign key as
+`NOT VALID` (no scan). The two column arrays must be non-empty and of equal
+length; blank names are rejected with `22023`.
+
+###
+`ddl_utils_lib.lock_foreign_key_tables(i_schema_name, i_table_name, i_lock_mode, settings..., i_referenced_schema_name, i_referenced_table_name, i_referenced_lock_mode, referenced settings...)`
+
+```sql
+i_schema_name                 ddl_utils.non_null_text
+i_table_name                  ddl_utils.non_null_text
+i_lock_mode                   ddl_utils.non_null_text
+i_ddl_lock_timeout            ddl_utils.non_negative_integer
+i_sleep_time                  ddl_utils.non_negative_integer
+i_statement_duration          ddl_utils.non_negative_integer
+i_referenced_schema_name      ddl_utils.non_null_text
+i_referenced_table_name       ddl_utils.non_null_text
+i_referenced_lock_mode        ddl_utils.non_null_text
+i_referenced_ddl_lock_timeout ddl_utils.non_negative_integer
+i_referenced_sleep_time       ddl_utils.non_negative_integer
+i_referenced_statement_duration ddl_utils.non_negative_integer
+RETURNS void
+```
+
+`SECURITY INVOKER`. Pre-locks a foreign key's referencing and referenced tables
+with each table's own settings, in OID order so reciprocal calls cannot
+deadlock. `ADD FOREIGN KEY` uses `SHARE ROW EXCLUSIVE` for both modes;
+`VALIDATE CONSTRAINT` uses `SHARE UPDATE EXCLUSIVE` for the source and `SHARE
+ROW EXCLUSIVE` for the referenced table. A self-referencing key locks once.
+Each `LOCK TABLE` goes through `execute_with_lock_retry`, so a contended table
+raises `55P03` after its own budget. Missing relations are reported by `LOCK
+TABLE` with PostgreSQL's native `3F000`/`42P01`; over-long identifiers are
+rejected with `22023`.
 
 ###
 
@@ -887,8 +942,10 @@ RETURNS void
 ```
 
 `SECURITY INVOKER`. Validates a constraint, scanning existing rows under
-`SHARE UPDATE EXCLUSIVE` (does not block concurrent DML). Use it after the
-`NOT VALID` helpers.
+`SHARE UPDATE EXCLUSIVE` on the table (which does not block DML there).
+Validating a foreign key also takes `SHARE ROW EXCLUSIVE` on the referenced
+table, which does block DML there; `ensure_foreign_key` pre-locks it with that
+table's settings. Use it after the `NOT VALID` helpers.
 
 ### `ddl_utils_lib.drop_constraint(i_schema_name, i_table_name, i_constraint_name, settings...)`
 

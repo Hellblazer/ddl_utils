@@ -11,6 +11,11 @@ JUnit 5 / Testcontainers harness that exercises those routines. You install
 ddl_utils with the Liquibase CLI, without building anything or running Docker
 (see [Installing with the Liquibase CLI](#installing-with-the-liquibase-cli)).
 
+The changelog is deployed. Released schema changesets and their SQL/rollback
+files are frozen; routine, procedure and trigger files are edited in place under
+`runOnChange`. New schema work adds a new changeset. See
+[CONTRIBUTING.md](CONTRIBUTING.md#database-changes).
+
 ## Why: DDL locks are brutal
 
 PostgreSQL acquires an `ACCESS EXCLUSIVE` lock for almost every `ALTER TABLE`
@@ -68,7 +73,14 @@ The three settings are:
 
 - `ddl_lock_timeout` — per-attempt `lock_timeout` in ms (`0` disables the timeout).
 - `sleep_time` — ms to sleep between attempts.
-- `statement_duration` — total ms budget; the call raises `55P03` once exceeded.
+- `statement_duration` — lock-acquisition retry budget in ms; the call raises
+  `55P03` once it is exceeded.
+
+The settings bound only **lock acquisition**. Once a statement has its locks it
+may run for as long as it needs; a long `ALTER TABLE` or `VALIDATE CONSTRAINT`
+scan is intentional, and the routines deliberately do not set
+`statement_timeout`. Callers that need a hard execution cap set
+`statement_timeout` themselves.
 
 ## What is in the box
 
@@ -86,9 +98,10 @@ Liquibase loads two application schemas:
       `non_null_boolean`, and array domains used to validate inputs.
 - **`ddl_utils_lib`** — generic helpers that take the settings explicitly (the
   same operations, plus `validate_constraint` and `has_top_level_comma`).
-  `alter_table` is the internal runner they build on: it is the only routine
-  that executes dynamic SQL, and callers should prefer the structured
-  operations so the fragment is built from validated identifiers.
+  `execute_with_lock_retry` is the internal runner they build on: it executes
+  the statement built by `alter_table` or `lock_foreign_key_tables`, and it is
+  the only routine that executes dynamic SQL. Callers should prefer the
+  structured operations so the fragment is built from validated identifiers.
 
 Liquibase's own tracking tables are kept out of both schemas: they live in a
 dedicated `liquibase` schema as `liquibase.ddl_utils_databasechangelog` and
@@ -97,8 +110,13 @@ dedicated `liquibase` schema as `liquibase.ddl_utils_databasechangelog` and
 The user-facing helpers cover `ALTER TABLE` work that blocks concurrent DML —
 it takes `ACCESS EXCLUSIVE` (all of these except `add_foreign_key`) or
 `SHARE ROW EXCLUSIVE` (`add_foreign_key`) — so the bounded wait is worth
-applying. Operations that take only `SHARE UPDATE EXCLUSIVE` and so never block
-DML are deliberately not wrapped (see `validate_constraint` below):
+applying. Operations that take only `SHARE UPDATE EXCLUSIVE` on the altered
+table and so do not block DML there are deliberately not wrapped (see
+`validate_constraint` below); validating a foreign key also takes `SHARE ROW
+EXCLUSIVE` on the referenced table, and `ensure_foreign_key` pre-locks it with
+that table's own settings.
+
+The helpers cover:
 
 - **Columns**: `add_column(s)` (with an optional default), `drop_column(s)`,
   `rename_column`, `set_column_default`, `drop_column_default`, `drop_not_null`,
@@ -107,9 +125,14 @@ DML are deliberately not wrapped (see `validate_constraint` below):
 - **Constraints**: `add_check_constraint` and `add_foreign_key` (both emitted as
   `NOT VALID`, so no scan), `drop_constraint`, `rename_constraint`,
   `add_primary_key_using_index`, `add_unique_constraint_using_index` (attach an
-  index built with `CREATE UNIQUE INDEX CONCURRENTLY`). The scan step is
-  `ddl_utils_lib.validate_constraint` (it takes only `SHARE UPDATE EXCLUSIVE`,
-  so it has no lock-aware wrapper and is used by the procedures).
+  index built with `CREATE UNIQUE INDEX CONCURRENTLY`). `add_foreign_key` takes
+  `SHARE ROW EXCLUSIVE` on both the referencing and referenced tables, so it
+  resolves and honours both tables' settings and pre-locks both in a
+  deterministic order. The scan step is `ddl_utils_lib.validate_constraint`
+  (`SHARE UPDATE EXCLUSIVE` on the source table; for a foreign key it also
+  takes `SHARE ROW EXCLUSIVE` on the referenced table, which `ensure_foreign_key`
+  pre-locks with that table's settings). It has no lock-aware wrapper and is
+  used by the procedures.
 - **Tables**: `rename_table`.
 
 `ALTER COLUMN TYPE`, `SET LOGGED`, `SET TABLESPACE` and the other rewriting
@@ -124,7 +147,9 @@ implemented as a stored **procedure** in the `ddl_utils` schema, which can
   it, `SET NOT NULL`, drop the temporary constraint, committing between steps.
 - `ensure_check_constraint(schema, table, constraint, expression)` — add a
   `CHECK` as `NOT VALID`, then validate.
-- `ensure_foreign_key(...)` — the same for a foreign key.
+- `ensure_foreign_key(...)` — the same for a foreign key; both the add and
+  validate steps pre-lock the referencing and referenced tables with their own
+  settings.
 
 Procedures are idempotent and recoverable: each step inspects the catalog and
 skips work already committed, so a call interrupted part-way is completed by
@@ -169,7 +194,8 @@ the Liquibase CLI at `db.changelog-master.xml`.
   routines that the migration role creates later in this database (the revoke
   must be database-wide: a per-schema `REVOKE` cannot remove PostgreSQL's
   built-in global grant), so a routine added by a later changeset is not
-  world-executable by default.
+  world-executable by default. The initial grant changeset is frozen; a routine
+  added after it needs its own grant changeset (with a rollback).
 
 ### 1. Create the roles
 
@@ -327,13 +353,16 @@ SELECT ddl_utils.add_primary_key_using_index('public', 'orders', 'orders_pkey', 
 SELECT ddl_utils_lib.add_column('public', 'orders', 'note', 'text', true, NULL, 250, 500, 30000);
 ```
 
-`ddl_utils_lib.alter_table` is the internal runner the structured helpers build
-on; prefer those so the SQL fragment is assembled from validated identifiers.
+`ddl_utils_lib.alter_table` builds the statement the structured helpers need
+and runs it through `ddl_utils_lib.execute_with_lock_retry`; prefer the
+structured helpers so the SQL fragment is assembled from validated identifiers.
 
-All routines run inside the caller's transaction and never commit; `lock_timeout`
-is set with `SET LOCAL` semantics and restored afterwards. Callers are expected
-to hold the privileges they would need to run the SQL directly — the helpers
-are a convenience for lock handling, not a privilege boundary.
+All functions run inside the caller's transaction and never commit; the
+`ensure_*` procedures commit between steps and must be called in autocommit.
+`lock_timeout` is set with `SET LOCAL` semantics and restored afterwards.
+Callers are expected to hold the privileges they would need to run the SQL
+directly — the helpers are a convenience for lock handling, not a privilege
+boundary.
 
 For tests, jOOQ classes are generated from the migrated schema into
 `target/generated-sources/jooq`.
@@ -376,8 +405,8 @@ uploads the linter's SARIF output to GitHub code scanning, so findings show
 inline on pull requests.
 `BaselineUpgradeTest` upgrades from the latest published release below the
 current revision to the current changelog and compares the two catalogs. It is
-enabled in `verify`; disable it only while a baseline is edited in place, and
-re-enable it after the replacement release.
+enabled in `verify`; do not disable it to edit a published baseline in place.
+A published baseline is immutable: publish a replacement release instead.
 `PlpgsqlCheckTest` also runs `plpgsql_check` over every routine and fails on any
 finding not accepted in `plpgsql-check-whitelist.yml`, using the shared
 `PlpgsqlCheck` helper from `liquibase-validation`. The container tests inherit

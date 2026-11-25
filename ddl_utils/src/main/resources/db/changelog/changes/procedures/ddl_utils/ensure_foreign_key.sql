@@ -13,6 +13,7 @@ AS
 $$
 DECLARE
     l_settings            ddl_utils.lock_settings;
+    l_referenced_settings ddl_utils.lock_settings;
     l_relation            regclass;
     l_referenced_relation regclass;
     l_constraint_oid      oid;
@@ -28,10 +29,13 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
-    -- Read the lock settings once; they are reused across both steps.
+    -- Read both tables' lock settings once; they are reused across both steps.
     l_settings := ddl_utils_lib.table_lock_settings(
             i_schema_name => i_schema_name,
             i_table_name => i_table_name);
+    l_referenced_settings := ddl_utils_lib.table_lock_settings(
+            i_schema_name => i_referenced_schema_name,
+            i_table_name => i_referenced_table_name);
 
     l_relation := ddl_utils_lib.resolve_table_relation(
             i_schema_name => i_schema_name,
@@ -163,8 +167,25 @@ BEGIN
 
     -- Step 1: add the foreign key as NOT VALID (no scan; SHARE ROW EXCLUSIVE on
     -- both tables, released at the commit). Skipped when it already exists, so a
-    -- re-run recovers after a partial failure.
+    -- re-run recovers after a partial failure. Pre-lock both tables first with
+    -- each table's own settings; the advisory lock above serializes concurrent
+    -- calls but does not bound the table-lock wait.
     IF l_constraint_oid IS NULL THEN
+        PERFORM ddl_utils_lib.lock_foreign_key_tables(
+                i_schema_name => i_schema_name,
+                i_table_name => i_table_name,
+                i_lock_mode => 'share row exclusive',
+                i_ddl_lock_timeout => l_settings.ddl_lock_timeout,
+                i_sleep_time => l_settings.sleep_time,
+                i_statement_duration => l_settings.statement_duration,
+                i_referenced_schema_name => i_referenced_schema_name,
+                i_referenced_table_name => i_referenced_table_name,
+                i_referenced_lock_mode => 'share row exclusive',
+                i_referenced_ddl_lock_timeout => l_referenced_settings.ddl_lock_timeout,
+                i_referenced_sleep_time => l_referenced_settings.sleep_time,
+                i_referenced_statement_duration => l_referenced_settings.statement_duration
+                );
+
         PERFORM ddl_utils_lib.add_foreign_key(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name,
@@ -240,10 +261,28 @@ BEGIN
     END IF;
 
     -- Step 2: validate the constraint, scanning under SHARE UPDATE EXCLUSIVE.
+    -- Validating a foreign key also takes SHARE ROW EXCLUSIVE on the referenced
+    -- table, so pre-lock both with each table's own settings: the source lock
+    -- does not block DML, while the referenced lock matches what VALIDATE takes.
     IF EXISTS (SELECT 1
                FROM pg_catalog.pg_constraint AS c
                WHERE c.oid = l_constraint_oid
                  AND NOT c.convalidated) THEN
+        PERFORM ddl_utils_lib.lock_foreign_key_tables(
+                i_schema_name => i_schema_name,
+                i_table_name => i_table_name,
+                i_lock_mode => 'share update exclusive',
+                i_ddl_lock_timeout => l_settings.ddl_lock_timeout,
+                i_sleep_time => l_settings.sleep_time,
+                i_statement_duration => l_settings.statement_duration,
+                i_referenced_schema_name => i_referenced_schema_name,
+                i_referenced_table_name => i_referenced_table_name,
+                i_referenced_lock_mode => 'share row exclusive',
+                i_referenced_ddl_lock_timeout => l_referenced_settings.ddl_lock_timeout,
+                i_referenced_sleep_time => l_referenced_settings.sleep_time,
+                i_referenced_statement_duration => l_referenced_settings.statement_duration
+                );
+
         PERFORM ddl_utils_lib.validate_constraint(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name,
@@ -258,6 +297,8 @@ END;
 $$;
 
 COMMENT ON PROCEDURE ddl_utils.ensure_foreign_key IS
-    'Adds a foreign key as NOT VALID and then validates it, committing between steps. '
-        'The referenced columns must be covered by a unique index or constraint. '
-        'Call it outside a transaction block (autocommit).';
+    'Adds a foreign key as NOT VALID and then validates it, committing between '
+        'steps. The add and validate steps pre-lock both tables with each '
+        'table''s own settings. The referenced columns must be covered by a '
+        'unique index or constraint. Call it outside a transaction block '
+        '(autocommit).';

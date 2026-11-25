@@ -21,6 +21,11 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 `./mvnw clean verify` on pull requests to
 `main`.
 
+The changelog is deployed: releases are published and consumers apply them.
+Released schema changesets are frozen; routine, procedure and trigger
+changesets use `runOnChange` and their object files are edited in place. See the
+Liquibase section.
+
 - `scripts/` is a git submodule of `eyupmiduck/workflow_library` (the shared
   build/dev shims: the custom PostgreSQL image, the local-DB scripts, the
   release script). Run `git submodule update --init` after cloning. Keep the
@@ -47,15 +52,19 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
       the lock-aware DDL wrappers (columns, constraints and tables) that resolve
       their settings through `get_lock_settings`; `ddl_utils_lib` holds the
       generic DDL helpers of the same names that take the settings explicitly,
-      with `alter_table` as the internal runner. Expose and lock-wrap only
-      `ALTER TABLE` work that blocks concurrent DML (it takes `ACCESS
-      EXCLUSIVE`, or `SHARE ROW EXCLUSIVE` for `add_foreign_key`); an operation
-      that takes only `SHARE UPDATE EXCLUSIVE` (for example `VALIDATE
+      with `execute_with_lock_retry` as the internal runner (`alter_table` and
+      `lock_foreign_key_tables` build the statement it runs). Expose and
+      lock-wrap only `ALTER TABLE` work that blocks concurrent DML (it takes
+      `ACCESS EXCLUSIVE`, or `SHARE ROW EXCLUSIVE` for `add_foreign_key`); an
+      operation that takes only `SHARE UPDATE EXCLUSIVE` (for example `VALIDATE
       CONSTRAINT`) needs no lock-aware wrapper and is a `ddl_utils_lib` helper
-      only. A function must make a single `ALTER TABLE` call because it
-      cannot commit mid-call; multi-step sequences (for example
-      check-validate-set NOT NULL) are implemented as procedures in the
-      `ddl_utils` schema that commit between steps (see the PL/pgSQL section and
+      only. A function must make a single `ALTER TABLE` call because it cannot
+      commit mid-call, but it may take the table locks it needs first: for
+      `ADD FOREIGN KEY`, `lock_foreign_key_tables` pre-locks both the
+      referencing and referenced tables in a deterministic order, each with its
+      own settings. Multi-step sequences (for example check-validate-set NOT
+      NULL) are implemented as procedures in the `ddl_utils` schema that commit
+      between steps (see the PL/pgSQL section and
       `changes/procedures/README.md`).
     - jOOQ classes are generated at build time into
       `target/generated-sources/jooq` by
@@ -93,10 +102,10 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - The previous-release upgrade test is `BaselineUpgradeTest`. It resolves the
   latest published release strictly below the current revision, applies it, then
   the current changelog, and compares the two catalogs. It is enabled in the
-  normal `verify` gate; disable it only while a baseline is edited in place, and
-  re-enable it after the replacement release. Do not delete the shared upgrade
-  support or the `upgrade.current.version` property. Any later in-place schema
-  edit repeats the disable -> baseline release -> re-enable cycle.
+  normal `verify` gate. Never disable it to edit a published baseline in place:
+  a published baseline is immutable. If a baseline is wrong, publish a
+  replacement release instead. Do not delete the shared upgrade support or the
+  `upgrade.current.version` property.
 - A release is a `v<version>` tag pushed to `main`. The `Release` workflow (`.github/workflows/release.yml`) derives the
   version from the tag (`-Drevision=${tag#v}`), runs the full `verify` gate, deploys to GitHub
   Packages, then creates the GitHub Release. Do not tag a commit that CI has
@@ -160,11 +169,20 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - **A procedure orchestrates; it does not implement DDL or locking.** Each step
   calls a purpose-named single-call function (preferably the matching
   `ddl_utils_lib` helper); a procedure never calls `ddl_utils_lib.alter_table`
-  directly and never contains a `lock_timeout`, retry, sleep or spin loop. A
-  procedure owns only the `COMMIT` boundaries and the idempotency checks, reads
-  the settings once via `ddl_utils.get_lock_settings`, and must be safely
-  re-runnable after a partial failure (each step tests the catalog before
-  acting). See `changes/procedures/README.md`.
+  or `ddl_utils_lib.execute_with_lock_retry` directly and never contains a
+  `lock_timeout`, retry, sleep or spin loop. A procedure owns only the `COMMIT`
+  boundaries and the idempotency checks, reads the settings once via
+  `ddl_utils_lib.table_lock_settings`, and must be safely re-runnable after a
+  partial failure (each step tests the catalog before acting). For a foreign
+  key it reads both tables' settings and calls `lock_foreign_key_tables`; see
+  `changes/procedures/README.md`.
+- **The lock settings bound lock acquisition, not execution.** Once a statement
+  has acquired its locks it may run for as long as it needs: long online
+  `ALTER TABLE` and `VALIDATE CONSTRAINT` scans are intentional. Do not add a
+  `statement_timeout`, an abort, or a commit-separated workaround just to
+  shorten a long statement, and do not treat `i_statement_duration` as a limit
+  on how long the statement may run — it is the retry budget for acquiring the
+  lock. Callers that need a hard cap set `statement_timeout` themselves.
 - Procedures must run in autocommit: `CALL` inside a client transaction block
   fails with `invalid transaction termination`.
 - Prefix input arguments with `i_`, output arguments with `o_`, and local
@@ -196,14 +214,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   `<createProcedure path="functions/<schema>/<name>.sql" relativeToChangelogFile="true"/>`.
   Liquibase has no `createFunction` change type, so functions use
   `createProcedure` too; the `path` attribute keeps SQL out of the XML.
-- `CREATE OR REPLACE` only replaces a routine with an identical signature.
-  Nothing is deployed yet, so a signature change is made in place: edit the
-  routine file and let `CREATE OR REPLACE` define the one current signature. Do
-  not add `DROP FUNCTION IF EXISTS <old signature>;` guards or compatibility
-  changesets — a fresh database (and every test and CI database) defines only
-  the new signature. Update the paired rollback in the same change, because it
-  drops the current signature. `RoutineSignatureTest` fails the build if a
-  routine name ends up with more than one signature unless the overload is
+- `CREATE OR REPLACE` only replaces a routine with an identical signature. The
+  changelog is deployed, but routine files are edited in place: `runOnChange`
+  re-applies the changed body on upgrade. When the signature changes, add
+  `DROP FUNCTION IF EXISTS <old signature>;` (or `DROP PROCEDURE IF EXISTS`)
+  before the new `CREATE OR REPLACE`, update the paired rollback, and add or
+  update the grant in a new grant changeset. Do not add versioned routine files
+  or rename a routine just to change it. `RoutineSignatureTest` fails the build
+  if a routine name ends up with more than one signature unless the overload is
   explicitly allow-listed.
 - Type routine arguments with the `ddl_utils` domains (for example
   `non_null_text`, `non_negative_integer`) so null or invalid inputs fail
@@ -217,7 +235,9 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - Never build dynamic SQL by concatenating values. Quote identifiers with
   `format('... %I ...', ...)` and literals with `%L`, and reject input that
   cannot be safely parameterized (for example an `ALTER TABLE` fragment with
-  multiple statements or comments).
+  multiple statements or comments). `ddl_utils_lib.execute_with_lock_retry` is
+  the only routine that executes dynamic SQL; the statement it runs is built by
+  `alter_table` or `lock_foreign_key_tables` from validated identifiers.
 - Schema-qualify objects or set `search_path` explicitly so a routine behaves
   the same regardless of the caller's `search_path`.
 - Routines run inside the caller's transaction: use `SET LOCAL` for
@@ -242,7 +262,13 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   `triggers-rollback/` from the `NNN-` file-name rule, like `functions/`.
 - Prefer changes that are safe to deploy against a live database.
 - Consider rollback and idempotency where appropriate.
-- Do not modify an already-deployed changeset unless explicitly instructed.
+- Every released schema changeset is frozen: never edit its id, SQL, rollback
+  or attributes; add a new changeset for schema work. Routine, procedure and
+  trigger changesets are the `runOnChange` exception: edit the object file and
+  its paired rollback in place, keep the changeset id/path/attributes fixed, and
+  do not add versioned copies. A changeset added since the last release may be
+  edited until the release that publishes it, then it is frozen (or, for a
+  `runOnChange` object changeset, editable in place).
 - Liquibase's tracking tables are kept out of the application schemas: they live
   in a dedicated `liquibase` schema as `ddl_utils_databasechangelog` and
   `ddl_utils_databasechangeloglock`. Every entry point sets this — the jOOQ
