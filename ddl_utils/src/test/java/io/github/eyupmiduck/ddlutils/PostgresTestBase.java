@@ -239,6 +239,63 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
+     * Returns the advisory-lock key {@code ddl_utils.ensure_not_null} uses, so
+     * a test can queue on the same key and pause the procedure between
+     * committed steps. The expression mirrors the procedure's key; the gate
+     * verifies that the procedure actually waits on it, so a key change fails
+     * the test instead of silently removing the interleaving.
+     *
+     * @param schema the table schema
+     * @param table  the table name
+     * @param column the column name
+     * @return the advisory-lock key
+     */
+    protected long ensureNotNullLockKey(String schema, String table, String column) {
+        return ((Number) dsl.fetchValue("""
+                SELECT pg_catalog.hashtextextended(
+                        pg_catalog.format('ddl_utils.ensure_not_null|%I.%I.%I', ?, ?, ?), 0)
+                """, schema, table, column)).longValue();
+    }
+
+    /**
+     * Returns the advisory-lock key {@code ddl_utils.ensure_check_constraint}
+     * uses, so a test can pause that procedure between its committed steps.
+     *
+     * @param schema the table schema
+     * @param table  the table name
+     * @return the advisory-lock key
+     */
+    protected long ensureCheckConstraintLockKey(String schema, String table) {
+        return ((Number) dsl.fetchValue("""
+                SELECT pg_catalog.hashtextextended(
+                        pg_catalog.format('ddl_utils.ensure_check_constraint|%I.%I', ?, ?), 0)
+                """, schema, table)).longValue();
+    }
+
+    /**
+     * Returns the advisory-lock key {@code ddl_utils.ensure_foreign_key} uses,
+     * so a test can pause that procedure between its committed steps.
+     *
+     * @param schema           the source table schema
+     * @param table            the source table name
+     * @param referencedSchema the referenced table schema
+     * @param referencedTable  the referenced table name
+     * @return the advisory-lock key
+     */
+    protected long ensureForeignKeyLockKey(String schema, String table,
+                                           String referencedSchema, String referencedTable) {
+        return ((Number) dsl.fetchValue("""
+                SELECT pg_catalog.hashtextextended(
+                        pg_catalog.format('ddl_utils.ensure_foreign_key|%s|%s',
+                            least(pg_catalog.format('%I.%I', ?, ?),
+                                  pg_catalog.format('%I.%I', ?, ?)),
+                            greatest(pg_catalog.format('%I.%I', ?, ?),
+                                     pg_catalog.format('%I.%I', ?, ?))), 0)
+                """, schema, table, referencedSchema, referencedTable,
+                schema, table, referencedSchema, referencedTable)).longValue();
+    }
+
+    /**
      * Returns the number of temporary NOT NULL proof CHECK constraints for a
      * column. Only CHECK constraints count: PostgreSQL 18+ also records the
      * column's NOT NULL as a {@code pg_constraint} row. The count comes from a

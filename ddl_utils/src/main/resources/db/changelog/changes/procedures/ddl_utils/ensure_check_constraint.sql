@@ -122,7 +122,9 @@ BEGIN
     -- The COMMIT released the lock. Re-resolve the relation and re-read the
     -- constraint so step 2 cannot inspect a dead relation or a constraint that
     -- was dropped/replaced in the gap (external DDL is not blocked by the
-    -- advisory lock).
+    -- advisory lock). A vanished constraint raises 42704 and a same-named
+    -- constraint of another kind 42710; both fail closed, and a re-run recreates
+    -- and validates the requested constraint.
     l_relation := pg_catalog.to_regclass(
             pg_catalog.format('%I.%I', i_schema_name, i_table_name));
 

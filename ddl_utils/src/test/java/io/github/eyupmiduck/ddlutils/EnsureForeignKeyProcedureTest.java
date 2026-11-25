@@ -328,6 +328,39 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
     }
 
     /**
+     * A source column renamed after the add committed but before validation
+     * makes the stored definition (which now uses the new name) differ from the
+     * caller's original names. Step 2 re-resolves the relation and fails closed
+     * with a definition mismatch instead of validating blindly; a re-run with
+     * the new name completes.
+     */
+    @Test
+    void failsClosedWhenASourceColumnIsRenamedBetweenSteps() throws Exception {
+        dsl.execute("INSERT INTO " + PUBLIC_SCHEMA + "." + REFERENCED + " (id) VALUES (1)");
+        long key = ensureForeignKeyLockKey(PUBLIC_SCHEMA, TARGET, PUBLIC_SCHEMA, REFERENCED);
+
+        try (AdvisoryLockStepGate gate = AdvisoryLockStepGate.start(dsl,
+                () -> openConnectionWithStatementTimeout(WORKER_STATEMENT_TIMEOUT),
+                key,
+                connection -> callEnsureForeignKey(connection, "fk_parent", "parent_id"))) {
+            gate.pauseAfterStep(1);
+            assertNotValidated(PUBLIC_SCHEMA, TARGET, "fk_parent");
+
+            dsl.execute("ALTER TABLE " + PUBLIC_SCHEMA + "." + TARGET
+                    + " RENAME COLUMN parent_id TO parent_id_renamed");
+            Throwable failure = gate.resume();
+
+            assertEquals("42710", sqlState(failure),
+                    () -> "a renamed source column must fail closed with a definition mismatch: " + failure);
+            assertNotValidated(PUBLIC_SCHEMA, TARGET, "fk_parent");
+        }
+
+        callEnsureForeignKey("fk_parent", "parent_id_renamed");
+
+        assertValidated(PUBLIC_SCHEMA, TARGET, "fk_parent");
+    }
+
+    /**
      * A call interrupted after the add (constraint present but NOT VALID) is
      * completed by calling again.
      */
@@ -528,9 +561,19 @@ class EnsureForeignKeyProcedureTest extends PostgresTestBase {
     }
 
     private void callEnsureForeignKey(String name) {
+        callEnsureForeignKey(name, "parent_id");
+    }
+
+    private void callEnsureForeignKey(String name, String... columns) {
         Routines.ensureForeignKey(dsl.configuration(),
-                PUBLIC_SCHEMA, TARGET, name,
-                new String[]{"parent_id"}, PUBLIC_SCHEMA, REFERENCED, new String[]{"id"});
+                PUBLIC_SCHEMA, TARGET, name, columns,
+                PUBLIC_SCHEMA, REFERENCED, new String[]{"id"});
+    }
+
+    private void callEnsureForeignKey(Connection connection, String name, String... columns) {
+        Routines.ensureForeignKey(DSL.using(connection, SQLDialect.POSTGRES).configuration(),
+                PUBLIC_SCHEMA, TARGET, name, columns,
+                PUBLIC_SCHEMA, REFERENCED, new String[]{"id"});
     }
 
 }

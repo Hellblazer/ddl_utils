@@ -300,6 +300,13 @@ BEGIN
             USING ERRCODE = '42704';
     END IF;
 
+    -- The comparison is by the caller's column names, not by attnum: a source
+    -- or referenced column renamed between steps updates the stored definition
+    -- to the new name, so the mapping no longer matches the requested names.
+    -- Fail closed (42710) and leave the key NOT VALID rather than validate a
+    -- key the caller may not recognize; a re-run with the new names validates
+    -- it. This misreports a rename as a definition change, but never silently
+    -- accepts or validates the wrong mapping.
     IF NOT ddl_utils_lib.foreign_key_definition_matches(
             i_schema_name => i_schema_name,
             i_table_name => i_table_name,

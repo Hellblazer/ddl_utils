@@ -95,6 +95,39 @@ Because a procedure commits, it must run in **autocommit**. Calling it inside a
 client-side transaction block fails with `invalid transaction termination`.
 From JDBC/jOOQ that means autocommit on (the tests do this).
 
+## External DDL between steps
+
+The transaction-scoped advisory lock is released at every `COMMIT`, so it
+serializes concurrent calls to the same procedure but does **not** block
+arbitrary external DDL. Each step therefore re-acquires the lock and re-reads
+the catalog before acting:
+
+- The relation is re-resolved by name and its `relkind` re-checked. A relation
+  dropped or renamed in the gap raises `42P01` (`undefined_table`), and one that
+  is no longer an ordinary/partitioned table raises `42809`; the call fails
+  closed instead of acting on a stale OID.
+- A relation dropped and recreated under the same name is treated as the target
+  relation: the procedures address tables by name, not OID. Do not replace a
+  table while a committed procedure is in flight on it.
+- `ensure_not_null` raises `55000` if the column was made nullable between the
+  `SET NOT NULL` step and cleanup, and leaves the temporary proof in place. A
+  re-run sets `NOT NULL` again and removes the proof.
+- `ensure_foreign_key` compares the stored definition with the caller's column
+  names. A column renamed in the gap makes the stored definition use the new
+  name, so step 2 raises `42710` and leaves the key `NOT VALID`; re-run with the
+  new names.
+- `ensure_check_constraint` re-reads the constraint by name after the `COMMIT`:
+  a vanished constraint raises `42704`, and a same-named constraint of another
+  kind raises `42710`. A same-named `CHECK` is treated as the target and its
+  expression is not compared (see below).
+
+The guards close the window **between** steps: each step's catalog re-read sees
+external DDL that committed before it. Within a step, the re-read and the
+helper's `ALTER TABLE` are separate statements, so unrelated DDL can still
+commit in the gap between them; the helper's table lock serializes the
+statements themselves, not the earlier read. Serialize unrelated DDL on a table
+while a committed procedure is in flight on it.
+
 ## Procedures
 
 A procedure cannot share a name and argument types with a function, so the
@@ -116,9 +149,12 @@ verification scan. `CALL` it outside an explicit transaction block (autocommit):
 otherwise. Steps, each
 committed before the next:
 
-Each step re-acquires the transaction-scoped advisory lock and re-reads the
-column/constraint state, because a `COMMIT` releases the lock and a concurrent
-call may have completed one or more steps in between.
+Each step re-acquires the transaction-scoped advisory lock, re-resolves the
+relation by name (and re-checks `relkind`), and re-reads the column/constraint
+state, because a `COMMIT` releases the lock, a concurrent call may have
+completed one or more steps, and external DDL is not blocked. The call is
+name-addressed, so a relation dropped or renamed in the gap fails closed with
+`42P01`/`42809` instead of continuing on a stale OID.
 
 1. `ddl_utils_lib.add_check_constraint(<tmp>, '<col> IS NOT NULL')` — instant,
    `NOT VALID`, brief `ACCESS EXCLUSIVE`. Skipped when the column is already
@@ -130,8 +166,10 @@ call may have completed one or more steps in between.
    `CHECK` proves the column non-null. Skipped when the column is already
    `NOT NULL`.
 4. `ddl_utils_lib.drop_constraint(<tmp>)` — cleanup; runs when the temporary
-   proof still exists, so a leftover constraint is removed and a concurrent
-   call's cleanup is not repeated.
+   proof still exists **and the column is still `NOT NULL`**, so a leftover
+   constraint is removed and a concurrent call's cleanup is not repeated. If
+   external DDL made the column nullable in the gap, the call raises `55000`
+   and leaves the proof in place; a re-run completes the column and removes it.
 
 `<tmp>` is deterministic from the table and column, so a re-run finds the same
 constraint. A call interrupted after any step is completed by re-running it. A

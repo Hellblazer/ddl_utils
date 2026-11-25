@@ -15,6 +15,7 @@ DECLARE
     l_base             text;
     l_constraint_name  text;
     l_relation         regclass;
+    l_relkind          text;
     l_lock_key         bigint;
 BEGIN
     -- PostgreSQL truncates an over-long identifier with only a NOTICE, so each
@@ -48,7 +49,19 @@ BEGIN
                  i_table_name => i_table_name
          ) AS ls;
 
-    l_relation := pg_catalog.format('%I.%I', i_schema_name, i_table_name)::regclass;
+    l_relation := pg_catalog.to_regclass(
+            pg_catalog.format('%I.%I', i_schema_name, i_table_name));
+
+    SELECT c.relkind::text
+    INTO l_relkind
+    FROM pg_catalog.pg_class AS c
+    WHERE c.oid = l_relation;
+
+    IF l_relkind IS NULL THEN
+        RAISE EXCEPTION 'ddl_utils.ensure_not_null: table %.% does not exist',
+            i_schema_name, i_table_name
+            USING ERRCODE = '42P01';
+    END IF;
 
     -- A named relation with an attribute is not necessarily a table a CHECK
     -- constraint and SET NOT NULL can be added to; reject other relation kinds
@@ -56,9 +69,7 @@ BEGIN
     -- A partitioned parent ('p') is accepted, but the ADD/VALIDATE/SET/DROP
     -- steps recurse to every partition; the lock/retry settings below bound the
     -- parent statement only, not the per-partition locks and scans.
-    IF (SELECT c.relkind
-        FROM pg_catalog.pg_class AS c
-        WHERE c.oid = l_relation) NOT IN ('r', 'p') THEN
+    IF l_relkind NOT IN ('r', 'p') THEN
         RAISE EXCEPTION 'ddl_utils.ensure_not_null: %.% is not a table',
             i_schema_name, i_table_name
             USING ERRCODE = '42809';
@@ -109,6 +120,33 @@ BEGIN
     FOR l_step IN 1..4
         LOOP
             PERFORM pg_catalog.pg_advisory_xact_lock(l_lock_key);
+
+            -- External DDL is not blocked by the advisory lock, so re-resolve
+            -- the relation by name and re-check its kind after every COMMIT. A
+            -- rename/drop/replace between steps must not leave the catalog reads
+            -- and the DDL helpers aimed at different relations: a relation
+            -- dropped or renamed in the gap raises 42P01, a non-table 42809, and
+            -- a column renamed or dropped 42703. A same-name replacement is the
+            -- target relation, because the call is name-addressed.
+            l_relation := pg_catalog.to_regclass(
+                    pg_catalog.format('%I.%I', i_schema_name, i_table_name));
+
+            SELECT c.relkind::text
+            INTO l_relkind
+            FROM pg_catalog.pg_class AS c
+            WHERE c.oid = l_relation;
+
+            IF l_relkind IS NULL THEN
+                RAISE EXCEPTION 'ddl_utils.ensure_not_null: table %.% does not exist',
+                    i_schema_name, i_table_name
+                    USING ERRCODE = '42P01';
+            END IF;
+
+            IF l_relkind NOT IN ('r', 'p') THEN
+                RAISE EXCEPTION 'ddl_utils.ensure_not_null: %.% is not a table',
+                    i_schema_name, i_table_name
+                    USING ERRCODE = '42809';
+            END IF;
 
             SELECT a.attnotnull
             INTO l_already_not_null
@@ -215,9 +253,18 @@ BEGIN
                                 );
                         COMMIT;
                     END IF;
-                WHEN 4 THEN -- Step 4: remove the temporary proof constraint. A foreign
-                -- same-named constraint was rejected above; a concurrent run
-                -- that already dropped its own proof leaves nothing to do.
+                WHEN 4 THEN -- Step 4: remove the temporary proof constraint. The
+                -- column must still be NOT NULL: external DDL can run between the
+                -- COMMITs, so a DROP NOT NULL after step 3 must fail the call
+                -- rather than let this step erase the proof and return success
+                -- with a nullable column.
+                    IF NOT l_already_not_null THEN
+                        RAISE EXCEPTION
+                            'ddl_utils.ensure_not_null: column %.% became nullable between steps; re-run the call',
+                            i_table_name, i_column_name
+                            USING ERRCODE = '55000';
+                    END IF;
+
                     IF l_proof_exists THEN
                         PERFORM ddl_utils_lib.drop_constraint(
                                 i_schema_name => i_schema_name,
