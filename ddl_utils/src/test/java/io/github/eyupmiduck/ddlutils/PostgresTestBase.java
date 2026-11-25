@@ -252,8 +252,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected long ensureNotNullLockKey(String schema, String table, String column) {
         return ((Number) dsl.fetchValue("""
-                SELECT pg_catalog.hashtextextended(
-                        pg_catalog.format('ddl_utils.ensure_not_null|%I.%I.%I', ?, ?, ?), 0)
+                SELECT ddl_utils_lib.operation_lock_key(
+                        'ddl_utils.ensure_not_null',
+                        ARRAY [
+                            pg_catalog.format('%I.%I', ?, ?),
+                            pg_catalog.format('%I', ?)
+                            ]::ddl_utils.non_empty_non_null_text_array)
                 """, schema, table, column)).longValue();
     }
 
@@ -267,8 +271,10 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected long ensureCheckConstraintLockKey(String schema, String table) {
         return ((Number) dsl.fetchValue("""
-                SELECT pg_catalog.hashtextextended(
-                        pg_catalog.format('ddl_utils.ensure_check_constraint|%I.%I', ?, ?), 0)
+                SELECT ddl_utils_lib.operation_lock_key(
+                        'ddl_utils.ensure_check_constraint',
+                        ARRAY [pg_catalog.format('%I.%I', ?, ?)]
+                            ::ddl_utils.non_empty_non_null_text_array)
                 """, schema, table)).longValue();
     }
 
@@ -285,14 +291,13 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     protected long ensureForeignKeyLockKey(String schema, String table,
                                            String referencedSchema, String referencedTable) {
         return ((Number) dsl.fetchValue("""
-                SELECT pg_catalog.hashtextextended(
-                        pg_catalog.format('ddl_utils.ensure_foreign_key|%s|%s',
-                            least(pg_catalog.format('%I.%I', ?, ?),
-                                  pg_catalog.format('%I.%I', ?, ?)),
-                            greatest(pg_catalog.format('%I.%I', ?, ?),
-                                     pg_catalog.format('%I.%I', ?, ?))), 0)
-                """, schema, table, referencedSchema, referencedTable,
-                schema, table, referencedSchema, referencedTable)).longValue();
+                SELECT ddl_utils_lib.operation_lock_key(
+                        'ddl_utils.ensure_foreign_key',
+                        ARRAY [
+                            pg_catalog.format('%I.%I', ?, ?),
+                            pg_catalog.format('%I.%I', ?, ?)
+                            ]::ddl_utils.non_empty_non_null_text_array)
+                """, schema, table, referencedSchema, referencedTable)).longValue();
     }
 
     /**

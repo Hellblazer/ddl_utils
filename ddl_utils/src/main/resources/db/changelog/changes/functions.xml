@@ -563,4 +563,78 @@
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.resolve_table_relation" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/resolve_table_relation.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/resolve_table_relation-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.column_not_null" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/column_not_null.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/column_not_null-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.assert_columns_exist" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/assert_columns_exist.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/assert_columns_exist-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.constraint_state" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/constraint_state.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/constraint_state-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.constraint_of_other_kind_exists" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/constraint_of_other_kind_exists.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/constraint_of_other_kind_exists-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.operation_lock_key" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/operation_lock_key.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/operation_lock_key-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.acquire_operation_lock" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/acquire_operation_lock.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/acquire_operation_lock-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-ddl_utils_lib.table_lock_settings" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <createProcedure path="functions/ddl_utils_lib/table_lock_settings.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/ddl_utils_lib/table_lock_settings-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
 </databaseChangeLog>

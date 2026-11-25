@@ -11,10 +11,8 @@ $$
 DECLARE
     l_settings       ddl_utils.lock_settings;
     l_relation       regclass;
-    l_relkind        text;
     l_constraint_oid oid;
     l_convalidated   boolean;
-    l_lock_key       bigint;
 BEGIN
     -- PostgreSQL truncates an identifier to NAMEDATALEN - 1 bytes with only a
     -- NOTICE. The catalog guards below compare conname with the untruncated
@@ -27,59 +25,32 @@ BEGIN
     END IF;
 
     -- Read the lock settings once; they are reused across both steps.
-    SELECT ls.ddl_lock_timeout,
-           ls.sleep_time,
-           ls.statement_duration
-    INTO STRICT l_settings.ddl_lock_timeout,
-        l_settings.sleep_time,
-        l_settings.statement_duration
-    FROM ddl_utils.get_lock_settings(
-                 i_schema_name => i_schema_name,
-                 i_table_name => i_table_name
-         ) AS ls;
+    l_settings := ddl_utils_lib.table_lock_settings(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name);
 
-    -- Resolve the relation without a ::regclass cast and test relkind
-    -- explicitly: a relation dropped between the reads yields NULL, which must
-    -- be reported as undefined_table rather than falling through a NULL
-    -- comparison.
-    l_relation := pg_catalog.to_regclass(
-            pg_catalog.format('%I.%I', i_schema_name, i_table_name));
-
-    SELECT c.relkind::text
-    INTO l_relkind
-    FROM pg_catalog.pg_class AS c
-    WHERE c.oid = l_relation;
-
-    IF l_relkind IS NULL THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_check_constraint: table %.% does not exist',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42P01';
-    END IF;
-
-    IF l_relkind NOT IN ('r', 'p') THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_check_constraint: %.% is not a table',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42809';
-    END IF;
+    l_relation := ddl_utils_lib.resolve_table_relation(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_context => 'ddl_utils.ensure_check_constraint',
+            i_relation_label => 'table');
 
     -- A transaction-scoped advisory lock on this table serializes concurrent
     -- runs. The read-then-act guards are separated by COMMIT, so the lock is
     -- taken again before each step; it is released by that step's COMMIT and on
     -- error, so a failed run cannot leak it.
-    l_lock_key := pg_catalog.hashtextextended(
-            pg_catalog.format('ddl_utils.ensure_check_constraint|%I.%I', i_schema_name, i_table_name),
-            0);
-    PERFORM pg_catalog.pg_advisory_xact_lock(l_lock_key);
+    PERFORM ddl_utils_lib.acquire_operation_lock(
+            i_context => 'ddl_utils.ensure_check_constraint',
+            i_keys => ARRAY [pg_catalog.format('%I.%I', i_schema_name, i_table_name)]);
 
     -- A same-named constraint of another kind would make add_check_constraint
     -- fail with a generic duplicate-object error; name the conflict instead.
     -- This runs under the advisory lock so a constraint committed while the
     -- lock was being acquired is seen.
-    IF EXISTS (SELECT 1
-               FROM pg_catalog.pg_constraint
-               WHERE conname = i_constraint_name
-                 AND conrelid = l_relation
-                 AND contype <> 'c') THEN
+    IF ddl_utils_lib.constraint_of_other_kind_exists(
+            i_relation => l_relation,
+            i_constraint_name => i_constraint_name,
+            i_contype => 'c') THEN
         RAISE EXCEPTION
             'ddl_utils.ensure_check_constraint: constraint % already exists on %.% as a different kind of constraint',
             i_constraint_name, i_schema_name, i_table_name
@@ -92,12 +63,12 @@ BEGIN
     -- version-dependent form of the expression -- so a same-named constraint
     -- with a different expression is not detected. Use a distinct name per
     -- expression.
-    SELECT c.oid
+    SELECT s.constraint_oid
     INTO l_constraint_oid
-    FROM pg_catalog.pg_constraint AS c
-    WHERE c.conname = i_constraint_name
-      AND c.conrelid = l_relation
-      AND c.contype = 'c';
+    FROM ddl_utils_lib.constraint_state(
+            i_relation => l_relation,
+            i_constraint_name => i_constraint_name,
+            i_contype => 'c') AS s;
 
     -- Step 1: add the constraint as NOT VALID (instant; brief ACCESS
     -- EXCLUSIVE). Skipped when it already exists, which is how a re-run
@@ -117,7 +88,9 @@ BEGIN
         COMMIT;
     END IF;
 
-    PERFORM pg_catalog.pg_advisory_xact_lock(l_lock_key);
+    PERFORM ddl_utils_lib.acquire_operation_lock(
+            i_context => 'ddl_utils.ensure_check_constraint',
+            i_keys => ARRAY [pg_catalog.format('%I.%I', i_schema_name, i_table_name)]);
 
     -- The COMMIT released the lock. Re-resolve the relation and re-read the
     -- constraint so step 2 cannot inspect a dead relation or a constraint that
@@ -125,39 +98,24 @@ BEGIN
     -- advisory lock). A vanished constraint raises 42704 and a same-named
     -- constraint of another kind 42710; both fail closed, and a re-run recreates
     -- and validates the requested constraint.
-    l_relation := pg_catalog.to_regclass(
-            pg_catalog.format('%I.%I', i_schema_name, i_table_name));
+    l_relation := ddl_utils_lib.resolve_table_relation(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_context => 'ddl_utils.ensure_check_constraint',
+            i_relation_label => 'table');
 
-    SELECT c.relkind::text
-    INTO l_relkind
-    FROM pg_catalog.pg_class AS c
-    WHERE c.oid = l_relation;
-
-    IF l_relkind IS NULL THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_check_constraint: table %.% does not exist',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42P01';
-    END IF;
-
-    IF l_relkind NOT IN ('r', 'p') THEN
-        RAISE EXCEPTION 'ddl_utils.ensure_check_constraint: %.% is not a table',
-            i_schema_name, i_table_name
-            USING ERRCODE = '42809';
-    END IF;
-
-    SELECT c.oid, c.convalidated
+    SELECT s.constraint_oid, s.convalidated
     INTO l_constraint_oid, l_convalidated
-    FROM pg_catalog.pg_constraint AS c
-    WHERE c.conname = i_constraint_name
-      AND c.conrelid = l_relation
-      AND c.contype = 'c';
+    FROM ddl_utils_lib.constraint_state(
+            i_relation => l_relation,
+            i_constraint_name => i_constraint_name,
+            i_contype => 'c') AS s;
 
     IF l_constraint_oid IS NULL THEN
-        IF EXISTS (SELECT 1
-                   FROM pg_catalog.pg_constraint
-                   WHERE conname = i_constraint_name
-                     AND conrelid = l_relation
-                     AND contype <> 'c') THEN
+        IF ddl_utils_lib.constraint_of_other_kind_exists(
+                i_relation => l_relation,
+                i_constraint_name => i_constraint_name,
+                i_contype => 'c') THEN
             RAISE EXCEPTION
                 'ddl_utils.ensure_check_constraint: constraint % changed to a different kind on %.% between steps',
                 i_constraint_name, i_schema_name, i_table_name

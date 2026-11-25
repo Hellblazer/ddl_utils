@@ -945,3 +945,85 @@ GRANT EXECUTE ON PROCEDURE ddl_utils.ensure_foreign_key(
     ddl_utils.non_null_text,
     ddl_utils.non_empty_non_null_text_array
     ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.resolve_table_relation(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.resolve_table_relation(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.column_not_null(
+    regclass,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.column_not_null(
+    regclass,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.assert_columns_exist(
+    regclass,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_empty_non_null_text_array,
+    ddl_utils.non_null_text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.assert_columns_exist(
+    regclass,
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text,
+    ddl_utils.non_empty_non_null_text_array,
+    ddl_utils.non_null_text
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.constraint_state(
+    regclass,
+    ddl_utils.non_null_text,
+    text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.constraint_state(
+    regclass,
+    ddl_utils.non_null_text,
+    text
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.constraint_of_other_kind_exists(
+    regclass,
+    ddl_utils.non_null_text,
+    text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.constraint_of_other_kind_exists(
+    regclass,
+    ddl_utils.non_null_text,
+    text
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.operation_lock_key(
+    ddl_utils.non_null_text,
+    ddl_utils.non_empty_non_null_text_array
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.operation_lock_key(
+    ddl_utils.non_null_text,
+    ddl_utils.non_empty_non_null_text_array
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.acquire_operation_lock(
+    ddl_utils.non_null_text,
+    ddl_utils.non_empty_non_null_text_array
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.acquire_operation_lock(
+    ddl_utils.non_null_text,
+    ddl_utils.non_empty_non_null_text_array
+    ) TO ddl_utils_caller;
+REVOKE EXECUTE ON FUNCTION ddl_utils_lib.table_lock_settings(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION ddl_utils_lib.table_lock_settings(
+    ddl_utils.non_null_text,
+    ddl_utils.non_null_text
+    ) TO ddl_utils_caller;
