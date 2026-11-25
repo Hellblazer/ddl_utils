@@ -98,4 +98,16 @@
             <sqlFile path="rollback/999-grant-privileges-rollback.sql" relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
+
+    <!-- Grants for the foreign-key lock helpers. This is a separate changeset
+         because 999 is frozen; it follows the same add-only/REVOKE discipline
+         and must stay after the object-creating includes. -->
+    <changeSet id="999-grant-privileges-for-fk-locking" author="lee.horner" dbms="postgresql"
+               runOnChange="true">
+        <sqlFile path="sql_changes/999-grant-privileges-for-fk-locking.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="rollback/999-grant-privileges-for-fk-locking-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
 </databaseChangeLog>

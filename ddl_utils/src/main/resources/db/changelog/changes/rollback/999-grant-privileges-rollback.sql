@@ -477,20 +477,6 @@ GRANT EXECUTE ON FUNCTION ddl_utils_lib.alter_table(
     ddl_utils.non_negative_integer,
     ddl_utils.non_negative_integer
     ) TO public;
-REVOKE EXECUTE ON FUNCTION ddl_utils_lib.execute_with_lock_retry(
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer
-    ) FROM ddl_utils_caller;
-GRANT EXECUTE ON FUNCTION ddl_utils_lib.execute_with_lock_retry(
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer
-    ) TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.non_empty_non_null_boolean_array FROM ddl_utils_caller;
 GRANT USAGE ON DOMAIN ddl_utils.non_empty_non_null_boolean_array TO public;
 REVOKE USAGE ON DOMAIN ddl_utils.non_empty_non_null_text_array FROM ddl_utils_caller;
@@ -808,34 +794,6 @@ GRANT EXECUTE ON FUNCTION ddl_utils_lib.add_foreign_key(
     ddl_utils.non_null_text,
     ddl_utils.non_null_text,
     ddl_utils.non_empty_non_null_text_array,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer
-    ) TO public;
-REVOKE EXECUTE ON FUNCTION ddl_utils_lib.lock_foreign_key_tables(
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer
-    ) FROM ddl_utils_caller;
-GRANT EXECUTE ON FUNCTION ddl_utils_lib.lock_foreign_key_tables(
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_negative_integer,
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
-    ddl_utils.non_null_text,
     ddl_utils.non_negative_integer,
     ddl_utils.non_negative_integer,
     ddl_utils.non_negative_integer
